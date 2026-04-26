@@ -29,13 +29,20 @@ final class StatusItemContentView: NSView {
     private var cachedUpLine: String = ""
     private var cachedDownLine: String = ""
     private lazy var runBrandStatusIconImage: NSImage? = Self.makeBrandStatusIconImage(
-        source: BrandIcon.runImage, size: brandIconRenderSize)
+        source: BrandIcon.runProxyImage, size: brandIconRenderSize)
     private lazy var sleepBrandStatusIconImage: NSImage? = Self.makeBrandStatusIconImage(
         source: BrandIcon.sleepImage, size: brandIconRenderSize)
+    private lazy var globalBrandStatusIconImage: NSImage? = Self.makeBrandStatusIconImage(
+        source: BrandIcon.runGlobalImage, size: brandIconRenderSize)
+    private lazy var directBrandStatusIconImage: NSImage? = Self.makeBrandStatusIconImage(
+        source: BrandIcon.runDirectImage, size: brandIconRenderSize)
     private static let brandIconRenderScales: [CGFloat] = [1, 2, 3]
 
     var usesBrandIcon: Bool {
-        self.runBrandStatusIconImage != nil || self.sleepBrandStatusIconImage != nil
+        self.runBrandStatusIconImage != nil ||
+            self.sleepBrandStatusIconImage != nil ||
+            self.globalBrandStatusIconImage != nil ||
+            self.directBrandStatusIconImage != nil
     }
 
     override init(frame frameRect: NSRect) {
@@ -61,7 +68,7 @@ final class StatusItemContentView: NSView {
     var requiredWidth: CGFloat {
         let display = self.currentDisplay ?? MenuBarDisplay(
             mode: .iconOnly,
-            symbolName: "bolt.slash.circle",
+            symbolName: nil,
             speedLines: nil,
             isRunning: false)
         switch display.mode {
@@ -86,11 +93,11 @@ final class StatusItemContentView: NSView {
         self.cachedDownLine = display.speedLines?.down ?? ""
 
         let shouldShowIcon = display.mode != .speedOnly
-        if shouldShowIcon, let brandIcon = self.brandStatusIconImage(isRunning: display.isRunning) {
+        if shouldShowIcon, let brandIcon = self.brandStatusIconImage(display: display) {
             if self.iconView.image !== brandIcon {
                 self.iconView.image = brandIcon
             }
-        } else if let symbolName = display.symbolName {
+        } else if let symbolName = display.symbolName, shouldShowIcon {
             if self.iconView.image == nil ||
                 previousSymbolName != symbolName ||
                 self.currentDisplay?.mode != previousMode
@@ -165,8 +172,19 @@ final class StatusItemContentView: NSView {
         }
     }
 
-    private func brandStatusIconImage(isRunning: Bool) -> NSImage? {
-        isRunning ? self.runBrandStatusIconImage : self.sleepBrandStatusIconImage
+    private func brandStatusIconImage(display: MenuBarDisplay) -> NSImage? {
+        guard display.isRunning else {
+            return self.sleepBrandStatusIconImage
+        }
+
+        switch display.symbolName {
+        case "globe":
+            return self.globalBrandStatusIconImage ?? self.runBrandStatusIconImage
+        case "bolt.fill":
+            return self.directBrandStatusIconImage ?? self.runBrandStatusIconImage
+        default:
+            return self.runBrandStatusIconImage
+        }
     }
 
     private func makeSpeedTemplateImage(upLine: String, downLine: String) -> NSImage {
@@ -288,12 +306,15 @@ final class StatusItemContentView: NSView {
             return nil
         }
 
+        let trimmedSourceRect = self.trimmedOpaqueRect(for: source)
+        let destinationRect = self.fittedBrandIconRect(sourceRect: trimmedSourceRect, pointSize: pointSize)
+
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context
         context.imageInterpolation = .high
         source.draw(
-            in: NSRect(origin: .zero, size: pointSize),
-            from: .zero,
+            in: destinationRect,
+            from: trimmedSourceRect,
             operation: .copy,
             fraction: 1.0,
             respectFlipped: true,
@@ -303,5 +324,61 @@ final class StatusItemContentView: NSView {
         context.cgContext.fill(CGRect(origin: .zero, size: pointSize))
         NSGraphicsContext.restoreGraphicsState()
         return representation
+    }
+
+    private static func fittedBrandIconRect(sourceRect: NSRect, pointSize: NSSize) -> NSRect {
+        guard sourceRect.width > 0, sourceRect.height > 0 else {
+            return NSRect(origin: .zero, size: pointSize)
+        }
+
+        let insetRatio: CGFloat = 0.18
+        let availableWidth = pointSize.width * (1 - insetRatio * 2)
+        let availableHeight = pointSize.height * (1 - insetRatio * 2)
+        let scale = min(availableWidth / sourceRect.width, availableHeight / sourceRect.height)
+        let width = sourceRect.width * scale
+        let height = sourceRect.height * scale
+        return NSRect(
+            x: (pointSize.width - width) / 2,
+            y: (pointSize.height - height) / 2,
+            width: width,
+            height: height)
+    }
+
+    private static func trimmedOpaqueRect(for source: NSImage) -> NSRect {
+        guard let tiff = source.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff)
+        else {
+            return NSRect(origin: .zero, size: source.size)
+        }
+
+        let width = bitmap.pixelsWide
+        let height = bitmap.pixelsHigh
+        var minX = width
+        var minY = height
+        var maxX = -1
+        var maxY = -1
+
+        for y in 0..<height {
+            for x in 0..<width {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                if color.alphaComponent <= 0.01 { continue }
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
+            }
+        }
+
+        guard maxX >= minX, maxY >= minY else {
+            return NSRect(origin: .zero, size: source.size)
+        }
+
+        let scaleX = source.size.width / CGFloat(width)
+        let scaleY = source.size.height / CGFloat(height)
+        return NSRect(
+            x: CGFloat(minX) * scaleX,
+            y: CGFloat(minY) * scaleY,
+            width: CGFloat(maxX - minX + 1) * scaleX,
+            height: CGFloat(maxY - minY + 1) * scaleY)
     }
 }

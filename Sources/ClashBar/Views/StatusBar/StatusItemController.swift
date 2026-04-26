@@ -128,7 +128,7 @@ private struct StatusItemBannerRootView: View {
 
     @ViewBuilder
     private var leadingBadge: some View {
-        if let brandImage = BrandIcon.image ?? BrandIcon.runImage {
+        if let brandImage = BrandIcon.image ?? BrandIcon.runProxyImage {
             RoundedRectangle(cornerRadius: 11, style: .continuous)
                 .fill(self.logoBackground)
                 .overlay {
@@ -499,19 +499,17 @@ final class StatusItemController: NSObject {
     }
 
     private func renderKey(for display: MenuBarDisplay) -> StatusItemRenderKey {
-        let shouldTrackSymbol = !self.statusContentView.usesBrandIcon
-        let symbolName = shouldTrackSymbol ? display.symbolName : nil
         switch display.mode {
         case .iconOnly:
             return StatusItemRenderKey(
                 mode: .iconOnly,
-                symbolName: symbolName,
+                symbolName: display.symbolName,
                 speedLines: nil,
                 isRunning: display.isRunning)
         case .iconAndSpeed:
             return StatusItemRenderKey(
                 mode: .iconAndSpeed,
-                symbolName: symbolName,
+                symbolName: display.symbolName,
                 speedLines: display.speedLines,
                 isRunning: display.isRunning)
         case .speedOnly:

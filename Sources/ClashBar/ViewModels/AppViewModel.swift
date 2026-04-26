@@ -59,7 +59,9 @@ final class AppViewModel: ObservableObject {
 
     let connectionsStore = ConnectionsStore()
 
-    @Published var currentMode: CoreMode = .rule
+    @Published var currentMode: CoreMode = .rule {
+        didSet { self.refreshMenuBarDisplaySnapshotIfNeeded() }
+    }
     @Published var logLevel: String = "info"
     @Published var port: Int?
     @Published var socksPort: Int?
@@ -202,7 +204,7 @@ final class AppViewModel: ObservableObject {
     @Published var latestAppReleaseInfo: AppReleaseInfo?
     @Published private(set) var menuBarDisplaySnapshot = MenuBarDisplay(
         mode: .iconOnly,
-        symbolName: "bolt.slash.circle",
+        symbolName: nil,
         speedLines: nil,
         isRunning: false)
 
@@ -262,13 +264,20 @@ final class AppViewModel: ObservableObject {
         self.coreRepository.isRunning || self.statusText.caseInsensitiveCompare("running") == .orderedSame
     }
 
-    var menuBarSymbolName: String {
+    var menuBarSymbolName: String? {
         switch self.runtimeVisualStatus {
-        case .runningHealthy: "bolt.horizontal.circle.fill"
-        case .runningDegraded: "bolt.horizontal.circle"
         case .starting: "clock.arrow.circlepath"
         case .failed: "exclamationmark.triangle.fill"
         case .stopped: "bolt.slash.circle"
+        case .runningHealthy, .runningDegraded:
+            switch self.currentMode {
+            case .rule:
+                "shield.lefthalf.filled"
+            case .global:
+                "globe"
+            case .direct:
+                "bolt.fill"
+            }
         }
     }
 

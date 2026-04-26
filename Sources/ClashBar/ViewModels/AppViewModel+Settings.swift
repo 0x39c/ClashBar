@@ -134,7 +134,13 @@ extension AppViewModel {
         let incoming = EditableSettingsSnapshot(config: config)
 
         if preserveLocalSettingsOnNextSync {
-            preserveLocalSettingsOnNextSync = false
+            let hasPendingOverlay = self.pendingConfigSwitchOverlaySettings != nil ||
+                self.pendingAppLaunchOverlaySettings != nil ||
+                self.deferredEditableSettingsOverlay != nil ||
+                self.settingsSyncingKey.map(self.isOverlaySyncingKey) == true
+            if !hasPendingOverlay {
+                preserveLocalSettingsOnNextSync = false
+            }
             lastSyncedEditableSettings = incoming
             persistEditableSettingsSnapshot()
             return
