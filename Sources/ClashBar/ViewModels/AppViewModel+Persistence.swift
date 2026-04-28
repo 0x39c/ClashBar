@@ -64,6 +64,7 @@ extension AppViewModel {
         if selectedConfigName == "-", let first = availableConfigFileNames.first {
             selectedConfigName = first
         }
+        self.refreshSelectedProxyProviderName()
         self.pruneSSIDStrategyRulesIfNeeded()
         self.pruneRemoteConfigSubscriptionsIfNeeded()
         self.refreshRemoteConfigMenuStates()

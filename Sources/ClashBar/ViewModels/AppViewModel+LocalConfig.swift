@@ -4,6 +4,76 @@ import UniformTypeIdentifiers
 
 @MainActor
 extension AppViewModel {
+    private var localDefaultConfigFileName: String {
+        "ClashBar.yaml"
+    }
+
+    private var localDefaultProviderListName: String {
+        "pp"
+    }
+
+    var isSelectedLocalDefaultConfig: Bool {
+        guard !self.isRemoteTarget,
+              let selectedURL = self.configRepository.selectedConfig
+        else {
+            return false
+        }
+
+        let defaultURL = self.workingDirectoryManager.configDirectoryURL
+            .appendingPathComponent(self.localDefaultConfigFileName, isDirectory: false)
+        return selectedURL.standardizedFileURL.resolvingSymlinksInPath().path == defaultURL.standardizedFileURL
+            .resolvingSymlinksInPath().path
+    }
+
+    var canBindProviderToSelectedLocalDefaultConfig: Bool {
+        self.isSelectedLocalDefaultConfig
+    }
+
+    func refreshSelectedProxyProviderName() {
+        guard self.isSelectedLocalDefaultConfig,
+              let selectedURL = self.configRepository.selectedConfig,
+              let content = try? String(contentsOf: selectedURL, encoding: .utf8)
+        else {
+            self.selectedProxyProviderName = nil
+            return
+        }
+
+        self.selectedProxyProviderName = LocalProxyProviderBindingMutator()
+            .selectedProviderName(inProviderListNamed: self.localDefaultProviderListName, content: content)
+    }
+
+    func selectProxyProviderForLocalDefaultConfig(name: String) async {
+        guard self.canBindProviderToSelectedLocalDefaultConfig else {
+            self.appendLog(level: "info", message: "Provider binding is only available for the local default config.")
+            return
+        }
+        guard let selectedURL = self.configRepository.selectedConfig else {
+            self.appendLog(level: "error", message: "Selected local default config could not be resolved.")
+            return
+        }
+        guard let providerName = name.trimmedNonEmpty else {
+            self.appendLog(level: "error", message: "Provider name is empty.")
+            return
+        }
+
+        do {
+            let content = try String(contentsOf: selectedURL, encoding: .utf8)
+            let updatedContent = try LocalProxyProviderBindingMutator().bindProvider(
+                named: providerName,
+                toProviderListNamed: self.localDefaultProviderListName,
+                in: content)
+            guard updatedContent != content else { return }
+
+            try self.writeConfigData(Data(updatedContent.utf8), to: selectedURL)
+            self.selectedProxyProviderName = providerName
+            self.appendLog(
+                level: "info",
+                message: "Bound provider list '\(self.localDefaultProviderListName)' to provider '\(providerName)'.")
+        } catch {
+            self.appendLog(level: "error", message: "Failed to bind provider '\(providerName)': \(error.localizedDescription)")
+        }
+    }
+
     func seedBundledConfigIfNeeded() {
         let fileManager = FileManager.default
         let targetURL = workingDirectoryManager.configDirectoryURL

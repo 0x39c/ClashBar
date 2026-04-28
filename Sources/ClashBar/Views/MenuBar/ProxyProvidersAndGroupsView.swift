@@ -42,101 +42,116 @@ extension ProxyTabView {
         let rowHorizontalPadding = T.space4
         let isUpdating = appViewModel.providerUpdating.contains(name)
         let hovered = hoveredProviderName == name
-        // Fixed width for update time — ensures vertical alignment across rows
+        let isBindingEnabled = appViewModel.canBindProviderToSelectedLocalDefaultConfig
+        let isSelected = appViewModel.selectedProxyProviderName == name
         let updateTimeWidth: CGFloat = 44
-
         let hasSubscription = detail?.subscriptionInfo != nil
+        let bindingHelpText = "Click to bind this provider to the local default config group."
+        let disabledHelpText = "Provider binding is only available when the selected config is the local default ClashBar.yaml on a local target."
 
-        return VStack(alignment: .leading, spacing: T.space6) {
-            // Row 1: icon | name + node badge | time (fixed) | refresh btn
-            HStack(alignment: .center, spacing: T.space6) {
-                Image(systemName: "externaldrive.fill")
-                    .font(.app(size: T.FontSize.caption, weight: .semibold))
-                    .foregroundStyle(nativeTeal.opacity(T.Opacity.solid))
-                    .frame(width: T.rowLeadingIcon, height: T.rowLeadingIcon)
-
-                HStack(alignment: .center, spacing: T.space4) {
-                    HStack(alignment: .center, spacing: T.space4) {
-                        Text(name)
-                            .font(.app(size: T.FontSize.body, weight: .semibold))
-                            .foregroundStyle(nativePrimaryLabel)
-                            .lineLimit(1)
-                            .layoutPriority(1)
-
-                        Text("\(nodeCount)")
+        return HStack(alignment: .top, spacing: T.space6) {
+            Button {
+                Task { await appViewModel.selectProxyProviderForLocalDefaultConfig(name: name) }
+            } label: {
+                VStack(alignment: .leading, spacing: T.space6) {
+                    HStack(alignment: .center, spacing: T.space6) {
+                        Image(systemName: "externaldrive.fill")
                             .font(.app(size: T.FontSize.caption, weight: .semibold))
-                            .foregroundStyle(nativeSecondaryLabel)
-                            .fixedSize()
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                            .foregroundStyle(nativeTeal.opacity(T.Opacity.solid))
+                            .frame(width: T.rowLeadingIcon, height: T.rowLeadingIcon)
 
-                    Text(updatedText)
-                        .font(.app(size: T.FontSize.caption, weight: .regular))
-                        .foregroundStyle(nativeTertiaryLabel)
-                        .lineLimit(1)
-                        .frame(width: updateTimeWidth, alignment: .trailing)
-                }
-                .frame(maxWidth: .infinity)
+                        HStack(alignment: .center, spacing: T.space4) {
+                            HStack(alignment: .center, spacing: T.space4) {
+                                Text(name)
+                                    .font(.app(size: T.FontSize.body, weight: isSelected ? .bold : .semibold))
+                                    .foregroundStyle(isSelected ? Color.primary : nativePrimaryLabel)
+                                    .lineLimit(1)
+                                    .layoutPriority(1)
 
-                Button {
-                    Task { await appViewModel.updateProxyProvider(name: name) }
-                } label: {
-                    ZStack {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.app(size: T.FontSize.caption, weight: .semibold))
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(nativeSecondaryLabel)
-                            .opacity(isUpdating ? 0 : 1)
-                        ProgressView()
-                            .scaleEffect(0.5)
-                            .opacity(isUpdating ? 1 : 0)
-                    }
-                    .frame(width: T.rowLeadingIcon, height: T.rowLeadingIcon)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(tr("ui.action.refresh"))
-            }
+                                Text("\(nodeCount)")
+                                    .font(.app(size: T.FontSize.caption, weight: .semibold))
+                                    .foregroundStyle(isSelected ? Color.primary.opacity(0.76) : nativeSecondaryLabel)
+                                    .fixedSize()
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Row 2 (subscription only): indented to align with Row 1 center content
-            if hasSubscription {
-                VStack(alignment: .leading, spacing: T.space2) {
-                    HStack(spacing: 0) {
-                        Text(expireText)
-                            .font(.app(size: T.FontSize.caption, weight: .regular))
-                            .foregroundStyle(expireColor)
-                        Spacer(minLength: T.space4)
-                        if let upload, let download, let total {
-                            let used = upload + download
-                            let quotaText =
-                                "\(ValueFormatter.bytesCompactNoSpace(used)) / " +
-                                "\(ValueFormatter.bytesCompactNoSpace(total))"
-                            Text(quotaText)
+                            Text(updatedText)
                                 .font(.app(size: T.FontSize.caption, weight: .regular))
-                                .foregroundStyle(nativeSecondaryLabel)
+                                .foregroundStyle(isSelected ? Color.primary.opacity(0.68) : nativeTertiaryLabel)
                                 .lineLimit(1)
+                                .frame(width: updateTimeWidth, alignment: .trailing)
                         }
+                        .frame(maxWidth: .infinity)
                     }
 
-                    if let usedRatio {
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                Capsule().fill(nativeControlFill.opacity(T.Opacity.solid))
-                                Capsule()
-                                    .fill((usedRatio >= 0.9 ? nativeCritical : usedRatio >= 0.75 ? nativeWarning :
-                                            nativeAccent).opacity(T.Opacity.solid))
-                                    .frame(width: geo.size.width * usedRatio)
+                    if hasSubscription {
+                        VStack(alignment: .leading, spacing: T.space2) {
+                            HStack(spacing: 0) {
+                                Text(expireText)
+                                    .font(.app(size: T.FontSize.caption, weight: .regular))
+                                    .foregroundStyle(expireColor)
+                                Spacer(minLength: T.space4)
+                                if let upload, let download, let total {
+                                    let used = upload + download
+                                    let quotaText =
+                                        "\(ValueFormatter.bytesCompactNoSpace(used)) / " +
+                                        "\(ValueFormatter.bytesCompactNoSpace(total))"
+                                    Text(quotaText)
+                                        .font(.app(size: T.FontSize.caption, weight: .regular))
+                                        .foregroundStyle(isSelected ? Color.primary.opacity(0.72) : nativeSecondaryLabel)
+                                        .lineLimit(1)
+                                }
+                            }
+
+                            if let usedRatio {
+                                GeometryReader { geo in
+                                    ZStack(alignment: .leading) {
+                                        Capsule().fill(nativeControlFill.opacity(T.Opacity.solid))
+                                        Capsule()
+                                            .fill((usedRatio >= 0.9 ? nativeCritical : usedRatio >= 0.75 ? nativeWarning :
+                                                    nativeAccent).opacity(T.Opacity.solid))
+                                            .frame(width: geo.size.width * usedRatio)
+                                    }
+                                }
+                                .frame(height: T.space6)
                             }
                         }
-                        .frame(height: T.space6)
+                        .padding(.leading, T.rowLeadingIcon + T.space6)
                     }
                 }
-                .padding(.leading, T.rowLeadingIcon + T.space6)
-                .padding(.trailing, T.rowLeadingIcon + T.space6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .disabled(!isBindingEnabled)
+            .help(isBindingEnabled ? bindingHelpText : disabledHelpText)
+            .opacity(isBindingEnabled ? 1 : 0.72)
+
+            Button {
+                Task { await appViewModel.updateProxyProvider(name: name) }
+            } label: {
+                ZStack {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.app(size: T.FontSize.caption, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(nativeSecondaryLabel)
+                        .opacity(isUpdating ? 0 : 1)
+                    ProgressView()
+                        .scaleEffect(0.5)
+                        .opacity(isUpdating ? 1 : 0)
+                }
+                .frame(width: T.rowLeadingIcon, height: T.rowLeadingIcon)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(tr("ui.action.refresh"))
         }
         .padding(.horizontal, rowHorizontalPadding)
         .padding(.vertical, T.space6)
+        .background(
+            RoundedRectangle(cornerRadius: T.cornerRadius, style: .continuous)
+                .fill(isSelected ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.34) : .clear))
         .background(nativeHoverRowBackground(hovered))
+        .contentShape(Rectangle())
         .onHover { hoveredProviderName = self.nextHovered(
             current: hoveredProviderName,
             target: name,

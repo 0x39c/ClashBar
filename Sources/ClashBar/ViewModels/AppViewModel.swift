@@ -74,6 +74,7 @@ final class AppViewModel: ObservableObject {
     @Published var configDirectoryPath: String = "-"
     @Published var availableConfigFileNames: [String] = []
     @Published var remoteConfigMenuStates: [String: RemoteConfigMenuState] = [:]
+    @Published var selectedProxyProviderName: String?
 
     let proxyStore = ProxyStore()
     var proxyGroups: [ProxyGroup] {

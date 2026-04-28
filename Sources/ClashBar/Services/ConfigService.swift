@@ -271,6 +271,154 @@ struct ConfigImportService {
 
 // MARK: -
 
+struct LocalProxyProviderBindingMutator {
+    enum MutationError: LocalizedError {
+        case providerListNotFound(String)
+        case providerListEmpty(String)
+
+        var errorDescription: String? {
+            switch self {
+            case let .providerListNotFound(name):
+                "Provider list '\(name)' was not found."
+            case let .providerListEmpty(name):
+                "Provider list '\(name)' has no editable items."
+            }
+        }
+    }
+
+    func bindProvider(named providerName: String, toProviderListNamed listName: String, in content: String) throws -> String {
+        let originalNewline = content.contains("\r\n") ? "\r\n" : "\n"
+        let normalizedContent = content.replacingOccurrences(of: "\r\n", with: "\n")
+        var lines = normalizedContent.components(separatedBy: "\n")
+
+        let binding = try self.providerListBinding(listName: listName, lines: lines)
+        let replacementLine = "\(String(repeating: " ", count: binding.itemIndent))- \(self.yamlDoubleQuoted(providerName))"
+        let firstItemIndex = binding.itemIndices[0]
+        lines[firstItemIndex] = replacementLine
+
+        for removalIndex in binding.itemIndices.dropFirst().reversed() {
+            lines.remove(at: removalIndex)
+        }
+
+        let updated = lines.joined(separator: "\n")
+        return originalNewline == "\n"
+            ? updated
+            : updated.replacingOccurrences(of: "\n", with: originalNewline)
+    }
+
+    func selectedProviderName(inProviderListNamed listName: String, content: String) -> String? {
+        let normalizedContent = content.replacingOccurrences(of: "\r\n", with: "\n")
+        let lines = normalizedContent.components(separatedBy: "\n")
+        guard let binding = try? self.providerListBinding(listName: listName, lines: lines),
+              let firstItemIndex = binding.itemIndices.first
+        else {
+            return nil
+        }
+        return self.providerName(fromProviderListLine: lines[firstItemIndex])
+    }
+
+    private func providerListBinding(listName: String, lines: [String]) throws -> (itemIndent: Int, itemIndices: [Int]) {
+        guard let headerIndex = lines.firstIndex(where: { self.isProviderListHeader($0, listName: listName) }) else {
+            throw MutationError.providerListNotFound(listName)
+        }
+
+        let headerIndent = self.leadingWhitespaceCount(of: lines[headerIndex])
+        let itemIndent = headerIndent + 2
+        var index = headerIndex + 1
+        var itemIndices: [Int] = []
+
+        while index < lines.count {
+            let line = lines[index]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
+                index += 1
+                continue
+            }
+
+            let indent = self.leadingWhitespaceCount(of: line)
+            if indent <= headerIndent, !trimmed.hasPrefix("#") {
+                break
+            }
+
+            if indent == itemIndent, self.isProviderListItemLine(line) {
+                itemIndices.append(index)
+            }
+            index += 1
+        }
+
+        guard !itemIndices.isEmpty else {
+            throw MutationError.providerListEmpty(listName)
+        }
+        return (itemIndent, itemIndices)
+    }
+
+    private func isProviderListHeader(_ line: String, listName: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard let separatorIndex = trimmed.firstIndex(of: ":") else { return false }
+        let key = trimmed[..<separatorIndex].trimmingCharacters(in: .whitespaces)
+        guard key == listName else { return false }
+        let suffix = trimmed[trimmed.index(after: separatorIndex)...]
+        return self.stripInlineComment(from: String(suffix)).trimmingCharacters(in: .whitespaces).hasPrefix("&")
+    }
+
+    private func isProviderListItemLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("-") || trimmed.hasPrefix("# -")
+    }
+
+    private func providerName(fromProviderListLine line: String) -> String? {
+        var trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("#") {
+            trimmed.removeFirst()
+            trimmed = trimmed.trimmingCharacters(in: .whitespaces)
+        }
+        guard trimmed.hasPrefix("-") else { return nil }
+        trimmed.removeFirst()
+        trimmed = self.stripInlineComment(from: trimmed).trimmingCharacters(in: .whitespaces)
+        if trimmed.count >= 2,
+           ((trimmed.hasPrefix("\"") && trimmed.hasSuffix("\"")) ||
+            (trimmed.hasPrefix("'") && trimmed.hasSuffix("'")))
+        {
+            trimmed.removeFirst()
+            trimmed.removeLast()
+        }
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func leadingWhitespaceCount(of line: String) -> Int {
+        line.prefix { $0 == " " || $0 == "\t" }.count
+    }
+
+    private func stripInlineComment(from text: String) -> String {
+        var result = ""
+        var inSingleQuote = false
+        var inDoubleQuote = false
+        var previousCharacter: Character?
+
+        for character in text {
+            if character == "'", !inDoubleQuote {
+                inSingleQuote.toggle()
+            } else if character == "\"", !inSingleQuote, previousCharacter != "\\" {
+                inDoubleQuote.toggle()
+            } else if character == "#", !inSingleQuote, !inDoubleQuote {
+                break
+            }
+
+            result.append(character)
+            previousCharacter = character
+        }
+
+        return result
+    }
+
+    private func yamlDoubleQuoted(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
+    }
+}
+
 @MainActor
 final class DefaultConfigRepository: ConfigRepository {
     private let configManager: ConfigDirectoryManager

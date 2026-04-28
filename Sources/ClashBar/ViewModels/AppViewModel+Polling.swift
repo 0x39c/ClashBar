@@ -206,7 +206,7 @@ extension AppViewModel {
 
     private func applyRuntimeConfigSnapshot(_ config: ConfigSnapshot) {
         let remoteMode = normalizeMode(config.mode)
-        if let remoteMode, !self.preserveLocalSettingsOnNextSync {
+        if let remoteMode {
             currentMode = remoteMode
         }
         logLevel = config.logLevel ?? logLevel
