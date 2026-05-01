@@ -160,6 +160,15 @@ extension AppViewModel {
             guard shouldContinueRefresh() else { return }
             if proxyProvidersDetail.isEmpty || ruleItems.isEmpty {
                 await refreshProvidersAndRules()
+                guard shouldContinueRefresh() else { return }
+            }
+
+            let now = Date()
+            if self.lastProxyAutoLatencyRefreshAt == nil ||
+                now.timeIntervalSince(self.lastProxyAutoLatencyRefreshAt!) >= self.proxyAutoLatencyRefreshThrottleInterval
+            {
+                self.lastProxyAutoLatencyRefreshAt = now
+                await self.refreshAllGroupLatencies()
             }
         case .rules:
             await refreshProvidersAndRules()

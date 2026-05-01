@@ -11,7 +11,20 @@ extension ProxyTabView {
             self.nodesSectionHeader(
                 tr("ui.section.proxy_providers"),
                 symbol: "externaldrive.fill",
-                count: "\(providers.count)")
+                count: "\(providers.count)") {
+                    self.compactTopIcon(
+                        "plus",
+                        label: self.tr("ui.action.add_proxy_provider"),
+                        toneOverride: nativeTeal)
+                    {
+                        await self.appViewModel.addProxyProviderToLocalDefaultConfig()
+                    }
+                    .disabled(!self.appViewModel.canBindProviderToSelectedLocalDefaultConfig)
+                    .help(self.appViewModel.canBindProviderToSelectedLocalDefaultConfig
+                        ? self.tr("ui.action.add_proxy_provider")
+                        : self.tr("ui.proxy_provider.help.local_only"))
+                    .opacity(self.appViewModel.canBindProviderToSelectedLocalDefaultConfig ? 1 : 0.72)
+                }
 
             if providers.isEmpty {
                 emptyCard(tr("ui.empty.proxy_providers"))
@@ -46,8 +59,8 @@ extension ProxyTabView {
         let isSelected = appViewModel.selectedProxyProviderName == name
         let updateTimeWidth: CGFloat = 44
         let hasSubscription = detail?.subscriptionInfo != nil
-        let bindingHelpText = "Click to bind this provider to the local default config group."
-        let disabledHelpText = "Provider binding is only available when the selected config is the local default ClashBar.yaml on a local target."
+        let bindingHelpText = self.tr("ui.proxy_provider.help.bind")
+        let disabledHelpText = self.tr("ui.proxy_provider.help.local_only")
 
         return HStack(alignment: .top, spacing: T.space6) {
             Button {
@@ -152,6 +165,15 @@ extension ProxyTabView {
                 .fill(isSelected ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.34) : .clear))
         .background(nativeHoverRowBackground(hovered))
         .contentShape(Rectangle())
+        .contextMenu {
+            if isBindingEnabled {
+                Button(role: .destructive) {
+                    Task { await self.appViewModel.deleteProxyProviderFromLocalDefaultConfig(name: name) }
+                } label: {
+                    Text(self.tr("ui.action.delete"))
+                }
+            }
+        }
         .onHover { hoveredProviderName = self.nextHovered(
             current: hoveredProviderName,
             target: name,
@@ -314,9 +336,9 @@ extension ProxyTabView {
 
                     self.providerActionButton(
                         .healthcheck,
-                        isLoading: appViewModel.groupLatencyLoading.contains(group.name))
+                        isLoading: appViewModel.isGroupLatencyLoading(group))
                     {
-                        await appViewModel.refreshGroupLatency(group)
+                        await appViewModel.refreshDisplayedGroupLatency(group)
                     }
                     .frame(width: 18, alignment: .center)
 

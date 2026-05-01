@@ -464,6 +464,8 @@ final class AppViewModel: ObservableObject {
     var lastCoreFailureAlertKey: String?
     var lastCoreFailureAlertAt: Date?
     let coreFailureAlertThrottleInterval: TimeInterval = 20
+    var lastProxyAutoLatencyRefreshAt: Date?
+    let proxyAutoLatencyRefreshThrottleInterval: TimeInterval = 60
     var networkReachabilityStatus: NetworkReachabilityStatus = .unknown
     var shouldResumeCoreAfterNetworkRecovery = false
     var isNetworkReachabilityMonitoring = false

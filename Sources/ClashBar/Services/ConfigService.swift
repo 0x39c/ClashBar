@@ -271,6 +271,12 @@ struct ConfigImportService {
 
 // MARK: -
 
+private func providerMutationText(_ key: String, _ args: CVarArg...) -> String {
+    let rawLanguage = UserDefaults.standard.string(forKey: "clashbar.ui.language")
+    let language = rawLanguage.flatMap(AppLanguage.init(rawValue:)) ?? .zhHans
+    return L10n.t(key, language: language, args: args)
+}
+
 struct LocalProxyProviderBindingMutator {
     enum MutationError: LocalizedError {
         case providerListNotFound(String)
@@ -279,9 +285,9 @@ struct LocalProxyProviderBindingMutator {
         var errorDescription: String? {
             switch self {
             case let .providerListNotFound(name):
-                "Provider list '\(name)' was not found."
+                providerMutationText("app.provider.error.provider_list_not_found", name)
             case let .providerListEmpty(name):
-                "Provider list '\(name)' has no editable items."
+                providerMutationText("app.provider.error.provider_list_empty", name)
             }
         }
     }
@@ -322,7 +328,7 @@ struct LocalProxyProviderBindingMutator {
             throw MutationError.providerListNotFound(listName)
         }
 
-        let headerIndent = self.leadingWhitespaceCount(of: lines[headerIndex])
+        let headerIndent = LocalProxyProviderBindingMutator.leadingWhitespaceCount(of: lines[headerIndex])
         let itemIndent = headerIndent + 2
         var index = headerIndex + 1
         var itemIndices: [Int] = []
@@ -335,7 +341,7 @@ struct LocalProxyProviderBindingMutator {
                 continue
             }
 
-            let indent = self.leadingWhitespaceCount(of: line)
+            let indent = LocalProxyProviderBindingMutator.leadingWhitespaceCount(of: line)
             if indent <= headerIndent, !trimmed.hasPrefix("#") {
                 break
             }
@@ -358,7 +364,7 @@ struct LocalProxyProviderBindingMutator {
         let key = trimmed[..<separatorIndex].trimmingCharacters(in: .whitespaces)
         guard key == listName else { return false }
         let suffix = trimmed[trimmed.index(after: separatorIndex)...]
-        return self.stripInlineComment(from: String(suffix)).trimmingCharacters(in: .whitespaces).hasPrefix("&")
+        return Self.stripInlineComment(from: String(suffix)).trimmingCharacters(in: .whitespaces).hasPrefix("&")
     }
 
     private func isProviderListItemLine(_ line: String) -> Bool {
@@ -374,22 +380,130 @@ struct LocalProxyProviderBindingMutator {
         }
         guard trimmed.hasPrefix("-") else { return nil }
         trimmed.removeFirst()
-        trimmed = self.stripInlineComment(from: trimmed).trimmingCharacters(in: .whitespaces)
-        if trimmed.count >= 2,
-           ((trimmed.hasPrefix("\"") && trimmed.hasSuffix("\"")) ||
-            (trimmed.hasPrefix("'") && trimmed.hasSuffix("'")))
-        {
-            trimmed.removeFirst()
-            trimmed.removeLast()
-        }
-        return trimmed.isEmpty ? nil : trimmed
+        trimmed = Self.stripInlineComment(from: trimmed).trimmingCharacters(in: .whitespaces)
+        return Self.unquoted(trimmed)
     }
 
-    private func leadingWhitespaceCount(of line: String) -> Int {
+    private func yamlDoubleQuoted(_ value: String) -> String {
+        Self.yamlDoubleQuoted(value)
+    }
+}
+
+struct LocalProxyProviderDefinitionMutator {
+    enum MutationError: LocalizedError {
+        case providersSectionNotFound
+        case providerNotFound(String)
+        case providerAlreadyExists(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .providersSectionNotFound:
+                providerMutationText("app.provider.error.providers_section_not_found")
+            case let .providerNotFound(name):
+                providerMutationText("app.provider.error.provider_not_found", name)
+            case let .providerAlreadyExists(name):
+                providerMutationText("app.provider.error.provider_already_exists", name)
+            }
+        }
+    }
+
+    func providerNames(in content: String) throws -> [String] {
+        let lines = content.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+        let section = try self.providersSection(in: lines)
+        return section.itemHeaders.compactMap { LocalProxyProviderBindingMutator.mappingKey(from: lines[$0], allowCommented: false) }
+    }
+
+    func addProvider(named providerName: String, url: String, path: String, to content: String) throws -> String {
+        let originalNewline = content.contains("\r\n") ? "\r\n" : "\n"
+        let normalizedContent = content.replacingOccurrences(of: "\r\n", with: "\n")
+        var lines = normalizedContent.components(separatedBy: "\n")
+        let section = try self.providersSection(in: lines)
+
+        if section.itemHeaders.contains(where: {
+            LocalProxyProviderBindingMutator.mappingKey(from: lines[$0], allowCommented: false) == providerName
+        }) {
+            throw MutationError.providerAlreadyExists(providerName)
+        }
+
+        let indent = String(repeating: " ", count: section.itemIndent)
+        let nestedIndent = String(repeating: " ", count: section.itemIndent + 2)
+        let newBlock = [
+            "\(indent)\(LocalProxyProviderBindingMutator.yamlDoubleQuoted(providerName)):",
+            "\(nestedIndent)<<: *a1",
+            "\(nestedIndent)url: \(LocalProxyProviderBindingMutator.yamlDoubleQuoted(url))",
+            "\(nestedIndent)path: \(path)",
+        ]
+
+        lines.insert(contentsOf: newBlock, at: section.sectionEndIndex)
+        let updated = lines.joined(separator: "\n")
+        return originalNewline == "\n"
+            ? updated
+            : updated.replacingOccurrences(of: "\n", with: originalNewline)
+    }
+
+    func removeProvider(named providerName: String, from content: String) throws -> String {
+        let originalNewline = content.contains("\r\n") ? "\r\n" : "\n"
+        let normalizedContent = content.replacingOccurrences(of: "\r\n", with: "\n")
+        var lines = normalizedContent.components(separatedBy: "\n")
+        let section = try self.providersSection(in: lines)
+
+        guard let startIndex = section.itemHeaders.first(where: {
+            LocalProxyProviderBindingMutator.mappingKey(from: lines[$0], allowCommented: false) == providerName
+        }) else {
+            throw MutationError.providerNotFound(providerName)
+        }
+
+        let followingHeaders = section.itemHeaders.filter { $0 > startIndex }
+        let endIndex = followingHeaders.first ?? section.sectionEndIndex
+        lines.removeSubrange(startIndex..<endIndex)
+
+        let updated = lines.joined(separator: "\n")
+        return originalNewline == "\n"
+            ? updated
+            : updated.replacingOccurrences(of: "\n", with: originalNewline)
+    }
+
+    private func providersSection(in lines: [String]) throws -> (itemIndent: Int, itemHeaders: [Int], sectionEndIndex: Int) {
+        guard let headerIndex = lines.firstIndex(where: { LocalProxyProviderBindingMutator.isProxyProvidersHeader($0) }) else {
+            throw MutationError.providersSectionNotFound
+        }
+
+        let headerIndent = LocalProxyProviderBindingMutator.leadingWhitespaceCount(of: lines[headerIndex])
+        let itemIndent = headerIndent + 2
+        var index = headerIndex + 1
+        var itemHeaders: [Int] = []
+
+        while index < lines.count {
+            let line = lines[index]
+            let trimmed = line.trimmingCharacters(in: CharacterSet.whitespaces)
+            if trimmed.isEmpty {
+                index += 1
+                continue
+            }
+
+            let indent = LocalProxyProviderBindingMutator.leadingWhitespaceCount(of: line)
+            if indent <= headerIndent, !trimmed.hasPrefix("#") {
+                break
+            }
+
+            if indent == itemIndent,
+               LocalProxyProviderBindingMutator.mappingKey(from: line, allowCommented: false) != nil
+            {
+                itemHeaders.append(index)
+            }
+            index += 1
+        }
+
+        return (itemIndent: itemIndent, itemHeaders: itemHeaders, sectionEndIndex: index)
+    }
+}
+
+private extension LocalProxyProviderBindingMutator {
+    static func leadingWhitespaceCount(of line: String) -> Int {
         line.prefix { $0 == " " || $0 == "\t" }.count
     }
 
-    private func stripInlineComment(from text: String) -> String {
+    static func stripInlineComment(from text: String) -> String {
         var result = ""
         var inSingleQuote = false
         var inDoubleQuote = false
@@ -411,11 +525,46 @@ struct LocalProxyProviderBindingMutator {
         return result
     }
 
-    private func yamlDoubleQuoted(_ value: String) -> String {
+    static func unquoted(_ text: String) -> String? {
+        var trimmed = text.trimmingCharacters(in: .whitespaces)
+        if trimmed.count >= 2,
+           ((trimmed.hasPrefix("\"") && trimmed.hasSuffix("\"")) ||
+            (trimmed.hasPrefix("'") && trimmed.hasSuffix("'")))
+        {
+            trimmed.removeFirst()
+            trimmed.removeLast()
+        }
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func yamlDoubleQuoted(_ value: String) -> String {
         let escaped = value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
         return "\"\(escaped)\""
+    }
+
+    static func mappingKey(from line: String, allowCommented: Bool) -> String? {
+        var trimmed = line.trimmingCharacters(in: .whitespaces)
+        if allowCommented, trimmed.hasPrefix("#") {
+            trimmed.removeFirst()
+            trimmed = trimmed.trimmingCharacters(in: .whitespaces)
+        }
+        guard !trimmed.hasPrefix("#"), !trimmed.hasPrefix("-"),
+              let separatorIndex = trimmed.firstIndex(of: ":")
+        else {
+            return nil
+        }
+
+        let key = stripInlineComment(from: String(trimmed[..<separatorIndex])).trimmingCharacters(in: .whitespaces)
+        return unquoted(key)
+    }
+
+    static func isProxyProvidersHeader(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard let separatorIndex = trimmed.firstIndex(of: ":") else { return false }
+        let key = trimmed[..<separatorIndex].trimmingCharacters(in: .whitespaces)
+        return key == "proxy-providers"
     }
 }
 

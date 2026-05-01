@@ -142,9 +142,10 @@ extension AppViewModel {
         let modeScopedGroups = self.currentMode == .global
             ? self.proxyGroups
             : self.proxyGroups.filter { $0.name.caseInsensitiveCompare("GLOBAL") != .orderedSame }
-        let groups = includeHiddenGroups
+        let groups = (includeHiddenGroups
             ? modeScopedGroups
-            : modeScopedGroups.filter { $0.hidden != true }
+            : modeScopedGroups.filter { $0.hidden != true })
+            .filter { self.shouldRefreshLatency(for: $0) }
         await withTaskGroup(of: Void.self) { taskGroup in
             for group in groups {
                 taskGroup.addTask { [weak self] in
@@ -191,6 +192,54 @@ extension AppViewModel {
     }
 
     func delayValue(group: String, node: String, fallbackToGroupHistory: Bool = false) -> Int? {
+        self.delayValue(
+            group: group,
+            node: node,
+            fallbackToGroupHistory: fallbackToGroupHistory,
+            visitedGroups: [])
+    }
+
+    func isGroupLatencyLoading(_ group: ProxyGroup) -> Bool {
+        guard let target = self.latencyRefreshTarget(for: group) else { return false }
+        return self.groupLatencyLoading.contains(target.name)
+    }
+
+    func refreshDisplayedGroupLatency(_ group: ProxyGroup) async {
+        guard let target = self.latencyRefreshTarget(for: group) else { return }
+        await self.refreshGroupLatency(target)
+
+        guard target.name != group.name,
+              let nestedName = group.now?.trimmedNonEmpty
+        else {
+            return
+        }
+
+        var delays = self.groupLatencies[group.name] ?? [:]
+        delays.removeValue(forKey: nestedName)
+        self.groupLatencies[group.name] = delays
+    }
+
+    private func delayValue(
+        group: String,
+        node: String,
+        fallbackToGroupHistory: Bool,
+        visitedGroups: Set<String>) -> Int?
+    {
+        var nextVisitedGroups = visitedGroups
+        if nextVisitedGroups.insert(node).inserted,
+           let nestedGroup = self.proxyGroups.first(where: { $0.name == node }),
+           let nestedNode = nestedGroup.now?.trimmedNonEmpty
+        {
+            if let nestedValue = self.delayValue(
+                group: nestedGroup.name,
+                node: nestedNode,
+                fallbackToGroupHistory: true,
+                visitedGroups: nextVisitedGroups)
+            {
+                return nestedValue
+            }
+        }
+
         if let liveValue = groupLatencies[group]?[node] {
             return liveValue
         }
@@ -201,6 +250,25 @@ extension AppViewModel {
             return proxyHistoryLatestDelay[group]
         }
         return nil
+    }
+
+    private func latencyRefreshTarget(for group: ProxyGroup) -> ProxyGroup? {
+        guard group.type?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "select",
+              let nestedName = group.now?.trimmedNonEmpty,
+              let nestedGroup = self.proxyGroups.first(where: { $0.name == nestedName })
+        else {
+            return group
+        }
+        return nestedGroup
+    }
+
+    private func shouldRefreshLatency(for group: ProxyGroup) -> Bool {
+        switch group.type?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "select":
+            false
+        default:
+            true
+        }
     }
 
     func controllerHost() -> String {
