@@ -486,7 +486,7 @@ extension AppViewModel {
 
     private func remoteSubscriptionUserAgent() async -> String {
         let version = await resolvedMihomoVersionForSubscriptionUserAgent()
-        return "clash.meta/\(version)"
+        return "clash-verge/\(version)"
     }
 
     private func resolvedMihomoVersionForSubscriptionUserAgent() async -> String {

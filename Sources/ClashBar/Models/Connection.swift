@@ -123,19 +123,36 @@ struct ConnectionMetadata: Codable, Equatable {
     let sourceIP: String?
     let destinationIP: String?
     let host: String?
+    let processName: String?
+    let processPath: String?
+    let pid: Int?
 
     private enum CodingKeys: String, CodingKey {
         case network
         case sourceIP
         case destinationIP
         case host
+        case processName
+        case processPath
+        case pid
     }
 
-    init(network: String?, sourceIP: String?, destinationIP: String?, host: String?) {
+    init(
+        network: String?,
+        sourceIP: String?,
+        destinationIP: String?,
+        host: String?,
+        processName: String?,
+        processPath: String?,
+        pid: Int?)
+    {
         self.network = network
         self.sourceIP = sourceIP
         self.destinationIP = destinationIP
         self.host = host
+        self.processName = processName
+        self.processPath = processPath
+        self.pid = pid
     }
 
     init(from decoder: Decoder) throws {
@@ -152,6 +169,16 @@ struct ConnectionMetadata: Codable, Equatable {
                 keys: ["destination_ip", "destination", "remoteIP", "remoteAddress"])
         self.host = try container.decodeIfPresent(String.self, forKey: .host).trimmedNonEmpty
             ?? ConnectionAnyCodingKey.decodeString(in: dynamic, keys: ["destinationHost", "remoteHost", "addr"])
+        self.processName = try container.decodeIfPresent(String.self, forKey: .processName).trimmedNonEmpty
+            ?? ConnectionAnyCodingKey.decodeString(
+                in: dynamic,
+                keys: ["process", "process_name", "processName", "app", "appName"])
+        self.processPath = try container.decodeIfPresent(String.self, forKey: .processPath).trimmedNonEmpty
+            ?? ConnectionAnyCodingKey.decodeString(
+                in: dynamic,
+                keys: ["process_path", "processPath", "exe", "executable", "path"])
+        self.pid = try container.decodeIfPresent(Int.self, forKey: .pid)
+            ?? ConnectionAnyCodingKey.decodeInt(in: dynamic, keys: ["pid", "process_id", "processId"])
     }
 }
 
@@ -200,6 +227,19 @@ private struct ConnectionAnyCodingKey: CodingKey {
                let value = rawValue.trimmedNonEmpty
             {
                 return [value]
+            }
+        }
+        return nil
+    }
+
+    static func decodeInt(
+        in container: KeyedDecodingContainer<ConnectionAnyCodingKey>,
+        keys: [String]) -> Int?
+    {
+        for keyName in keys {
+            guard let key = ConnectionAnyCodingKey(stringValue: keyName) else { continue }
+            if let value = container.decodeFlexibleInt(forKey: key) {
+                return value
             }
         }
         return nil

@@ -151,6 +151,8 @@ enum Endpoint {
             try? JSONSerialization.data(withJSONObject: body.mapValues(\.foundationObject))
         case let .switchProxy(_, target):
             try? JSONSerialization.data(withJSONObject: ["name": target])
+        case .putConfigs:
+            try? JSONSerialization.data(withJSONObject: [:])
         case .upgradeCore:
             try? JSONSerialization.data(withJSONObject: Self.coreUpgradeRequestBody)
         default:

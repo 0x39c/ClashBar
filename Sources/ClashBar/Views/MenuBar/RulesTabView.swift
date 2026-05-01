@@ -5,6 +5,14 @@ struct RulesTabView: TranslatingView {
     @StateObject private var viewModel = RulesViewModel()
     @State private var hoveredRuleIndex: Int?
 
+    private enum RulesLayout {
+        static let targetWidth: CGFloat = 120
+        static let policyWidth: CGFloat = 40
+        static let groupWidth: CGFloat = 56
+        static let usageColumnWidth: CGFloat = 42
+        static let statsSpacing: CGFloat = 4
+    }
+
     var body: some View {
         let visibleRules = self.viewModel.visibleRules
         let providerLookup = self.viewModel.providerLookup
@@ -33,13 +41,13 @@ struct RulesTabView: TranslatingView {
                 Text(self.tr("ui.rules.column.target_type"))
                     .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .medium))
                     .foregroundStyle(nativeTertiaryLabel)
-                    .frame(width: 120, alignment: .leading)
+                    .frame(width: RulesLayout.targetWidth, alignment: .leading)
                     .padding(.trailing, MenuBarLayoutTokens.space6)
                 Text(self.tr("ui.rules.column.policy"))
                     .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .medium))
                     .foregroundStyle(nativeTertiaryLabel)
                     .padding(.leading, MenuBarLayoutTokens.space6)
-                    .frame(width: 90, alignment: .leading)
+                    .frame(width: RulesLayout.policyWidth, alignment: .leading)
                 Text(self.tr("ui.rules.column.stats"))
                     .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .medium))
                     .foregroundStyle(nativeTertiaryLabel)
@@ -120,6 +128,7 @@ struct RulesTabView: TranslatingView {
         let iconSpec = self.ruleTypeIcon(for: typeText)
         let badge = self.rulePolicyBadge(for: policyText)
         let stats = self.ruleStats(payload: targetText, providerLookup: providerLookup)
+        let usage = self.ruleUsage(rule.extra)
 
         return HStack(spacing: 0) {
             Image(systemName: iconSpec.symbol)
@@ -138,7 +147,7 @@ struct RulesTabView: TranslatingView {
                     .foregroundStyle(nativeTertiaryLabel)
                     .lineLimit(1)
             }
-            .frame(width: 120, alignment: .leading)
+            .frame(width: RulesLayout.targetWidth, alignment: .leading)
             .padding(.trailing, MenuBarLayoutTokens.space6)
 
             HStack(spacing: MenuBarLayoutTokens.space1) {
@@ -153,23 +162,33 @@ struct RulesTabView: TranslatingView {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
-            .frame(width: 90, alignment: .leading)
+            .frame(width: RulesLayout.policyWidth, alignment: .leading)
 
-            VStack(alignment: .trailing, spacing: MenuBarLayoutTokens.space1) {
-                Text("\(stats.count)")
-                    .font(.app(size: MenuBarLayoutTokens.FontSize.body, weight: .regular))
-                    .foregroundStyle(stats.hasProvider ? nativeSecondaryLabel : nativeTertiaryLabel)
-                if let updatedText = stats.updatedText {
-                    Text(updatedText)
-                        .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .regular))
-                        .foregroundStyle(nativeTertiaryLabel)
-                        .lineLimit(1)
+            HStack(alignment: .top, spacing: RulesLayout.statsSpacing) {
+                HStack(alignment: .top, spacing: RulesLayout.statsSpacing) {
+                    self.ruleUsageMetricColumn(count: usage.hitCount, text: usage.hitText, color: nativePositive.opacity(MenuBarLayoutTokens.Opacity.solid))
+                    self.ruleUsageMetricColumn(count: usage.missCount, text: usage.missText, color: nativeWarning.opacity(MenuBarLayoutTokens.Opacity.solid))
                 }
+                .frame(width: (RulesLayout.usageColumnWidth * 2) + RulesLayout.statsSpacing, alignment: .trailing)
+
+                VStack(alignment: .trailing, spacing: MenuBarLayoutTokens.space1) {
+                    Text("\(stats.count)")
+                        .font(.app(size: MenuBarLayoutTokens.FontSize.body, weight: .regular))
+                        .foregroundStyle(stats.hasProvider ? nativeSecondaryLabel : nativeTertiaryLabel)
+                    if let updatedText = stats.updatedText {
+                        Text(updatedText)
+                            .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .regular))
+                            .foregroundStyle(nativeTertiaryLabel)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+                .frame(width: RulesLayout.groupWidth, alignment: .trailing)
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.horizontal, MenuBarLayoutTokens.space4)
-        .frame(height: MenuBarLayoutTokens.rowHeight)
+        .padding(.vertical, MenuBarLayoutTokens.space2)
         .background(nativeHoverRowBackground(hovered))
         .onHover { self.hoveredRuleIndex = self.nextHovered(
             current: self.hoveredRuleIndex, target: index, isHovering: $0) }
@@ -218,5 +237,34 @@ struct RulesTabView: TranslatingView {
                 hasProvider: true)
         }
         return (count: 0, updatedText: nil, hasProvider: false)
+    }
+
+    func ruleUsage(_ extra: RuleExtra?) -> (hitCount: Int, hitText: String?, missCount: Int, missText: String?) {
+        (
+            hitCount: max(0, extra?.hitCount ?? 0),
+            hitText: self.ruleUsageRelativeTime(extra?.hitAt),
+            missCount: max(0, extra?.missCount ?? 0),
+            missText: self.ruleUsageRelativeTime(extra?.missAt))
+    }
+
+    func ruleUsageMetricColumn(count: Int, text: String?, color: Color) -> some View {
+        VStack(alignment: .trailing, spacing: MenuBarLayoutTokens.space1) {
+            Text("\(count)")
+                .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .semibold))
+                .foregroundStyle(color)
+                .lineLimit(1)
+            if let text {
+                Text(text)
+                    .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .regular))
+                    .foregroundStyle(nativeTertiaryLabel)
+                    .lineLimit(1)
+            }
+        }
+        .frame(width: RulesLayout.usageColumnWidth, alignment: .trailing)
+    }
+
+    func ruleUsageRelativeTime(_ input: String?) -> String? {
+        let text = ValueFormatter.relativeTime(from: input, language: self.language)
+        return text == "--" ? nil : text
     }
 }

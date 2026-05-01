@@ -143,7 +143,9 @@ enum ValueFormatter {
         let parsedDate = self.parseISO8601Date(input)
         guard let date = parsedDate else { return L10n.t("fmt.common.unknown", language: language) }
 
-        let interval = max(0, now.timeIntervalSince(date))
+        let maxInterval: TimeInterval = 30 * 86_400
+        let clampedDate = date < now.addingTimeInterval(-maxInterval) ? now.addingTimeInterval(-maxInterval) : date
+        let interval = max(0, now.timeIntervalSince(clampedDate))
         let minutes = Int(interval / 60)
         if minutes < 60 {
             return L10n.t("fmt.relative.minutes", language: language, minutes)

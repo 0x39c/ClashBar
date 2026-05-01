@@ -44,4 +44,27 @@ struct RuleItem: Decodable, Hashable {
     let type: String?
     let payload: String?
     let proxy: String?
+    let extra: RuleExtra?
+}
+
+struct RuleExtra: Decodable, Hashable {
+    let hitCount: Int?
+    let hitAt: String?
+    let missCount: Int?
+    let missAt: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case hitCount
+        case hitAt
+        case missCount
+        case missAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.hitCount = container.decodeFlexibleInt(forKey: .hitCount)
+        self.hitAt = try container.decodeIfPresent(String.self, forKey: .hitAt).trimmedNonEmpty
+        self.missCount = container.decodeFlexibleInt(forKey: .missCount)
+        self.missAt = try container.decodeIfPresent(String.self, forKey: .missAt).trimmedNonEmpty
+    }
 }

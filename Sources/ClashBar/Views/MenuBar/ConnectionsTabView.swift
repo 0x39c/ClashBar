@@ -111,9 +111,14 @@ struct ConnectionsTabView: TranslatingView {
             ?? conn.metadata?.destinationIP.trimmedNonEmpty
             ?? self.tr("ui.common.na")
         let networkType = conn.metadata?.network.trimmedNonEmpty?.uppercased() ?? "--"
+        let processName = conn.metadata?.processName?.trimmedNonEmpty
+            ?? conn.metadata?.processPath?.split(separator: "/").last.map(String.init)?.trimmedNonEmpty
+            ?? conn.metadata?.pid.map(String.init)
+            ?? ""
         let timeText = self.connectionTimeOnly(conn.start)
         let upText = ValueFormatter.bytesCompactNoSpace(conn.upload ?? 0)
         let downText = ValueFormatter.bytesCompactNoSpace(conn.download ?? 0)
+        let chainsParts = self.connectionChainsParts(conn.chains)
         let parsedRule = self.parseConnectionRule(conn.rule)
         let ruleTypeText = self.connectionRuleTypeText(conn.rule, fallback: parsedRule?.type)
         let rulePayloadText = conn.rulePayload.trimmedNonEmpty
@@ -132,7 +137,7 @@ struct ConnectionsTabView: TranslatingView {
             VStack(alignment: .leading, spacing: MenuBarLayoutTokens.space2) {
                 self.connectionRowTopLine(host: hostText, ruleType: ruleTypeText, rulePayload: rulePayloadText)
                 self.connectionRowMetrics(time: timeText, network: networkType, up: upText, down: downText)
-                self.connectionsChainsLine(parts: self.connectionChainsParts(conn.chains))
+                self.connectionsDetailLine(processName: processName, parts: chainsParts)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -175,7 +180,6 @@ struct ConnectionsTabView: TranslatingView {
     }
 
     private func connectionRowMetrics(time: String, network: String, up: String, down: String) -> some View {
-        // Use static rowContentWidth — no GeometryReader needed since panel is always 360pt
         let columnWidth = max(
             (ConnectionsLayout.rowContentWidth - (ConnectionsLayout.secondLineSpacing * 3)) / 4,
             0)
@@ -209,6 +213,42 @@ struct ConnectionsTabView: TranslatingView {
                 width: columnWidth)
         }
         .frame(height: ConnectionsLayout.rowLineHeight)
+    }
+
+    private func connectionsDetailLine(processName: String, parts: [String]) -> some View {
+        let chainText = parts.joined(separator: " > ")
+
+        return HStack(spacing: MenuBarLayoutTokens.space4) {
+            HStack(spacing: MenuBarLayoutTokens.space2) {
+                Image(systemName: "point.3.connected.trianglepath.dotted")
+                    .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .semibold))
+                    .foregroundStyle(nativeSecondaryLabel)
+                    .frame(width: 10, alignment: .leading)
+                Text(parts.isEmpty ? self.tr("ui.common.na") : chainText)
+                    .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .regular))
+                    .foregroundStyle(nativeSecondaryLabel)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if !processName.isEmpty {
+                HStack(spacing: MenuBarLayoutTokens.space2) {
+                    Image(systemName: "app.badge")
+                        .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .semibold))
+                        .foregroundStyle(nativeSecondaryLabel)
+                        .frame(width: 10, alignment: .leading)
+                    Text(processName)
+                        .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .regular))
+                        .foregroundStyle(nativeSecondaryLabel)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .frame(maxWidth: ConnectionsLayout.rowContentWidth * 0.35, alignment: .trailing)
+            }
+        }
+        .frame(height: ConnectionsLayout.rowLineHeight, alignment: .leading)
     }
 
     private func connectionRowCloseButton(id: String, hovered: Bool) -> some View {
@@ -295,26 +335,6 @@ struct ConnectionsTabView: TranslatingView {
             .truncationMode(.middle)
             .minimumScaleFactor(MenuBarLayoutTokens.minimumScale)
             .frame(maxWidth: .infinity, alignment: .trailing)
-    }
-
-    func connectionsChainsLine(parts: [String]) -> some View {
-        let chainText = parts.joined(separator: " > ")
-        let displayText = parts.isEmpty ? self.tr("ui.common.na") : chainText
-
-        return HStack(spacing: MenuBarLayoutTokens.space2) {
-            Image(systemName: "point.3.connected.trianglepath.dotted")
-                .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .semibold))
-                .foregroundStyle(nativeSecondaryLabel)
-                .frame(width: 10, alignment: .leading)
-
-            Text(displayText)
-                .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .regular))
-                .foregroundStyle(nativeSecondaryLabel)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(height: ConnectionsLayout.rowLineHeight, alignment: .leading)
     }
 
     func connectionsTopLineLayout(
@@ -435,26 +455,10 @@ struct ConnectionsTabView: TranslatingView {
     }
 
     func connectionVisual(for conn: ConnectionSummary) -> (symbol: String, color: Color) {
-        let host = conn.metadata?.host?.lowercased() ?? ""
         let network = conn.metadata?.network?.lowercased() ?? ""
 
-        if host.contains("google") || host.contains("gstatic") {
-            return ("shield.fill", nativePurple.opacity(MenuBarLayoutTokens.Opacity.solid))
-        }
-        if host.contains("icloud") || host.contains("apple") {
-            return ("icloud.fill", nativeInfo.opacity(MenuBarLayoutTokens.Opacity.solid))
-        }
-        if host.contains("github") {
-            return ("terminal.fill", nativeIndigo.opacity(MenuBarLayoutTokens.Opacity.solid))
-        }
-        if host.contains("twitter") || host.contains("x.com") {
-            return ("lock.fill", nativePositive.opacity(MenuBarLayoutTokens.Opacity.solid))
-        }
-        if host.contains("amazon") {
-            return ("cart.fill", nativeWarning.opacity(MenuBarLayoutTokens.Opacity.solid))
-        }
         if network.contains("udp") {
-            return ("dot.radiowaves.left.and.right", nativeTeal.opacity(MenuBarLayoutTokens.Opacity.solid))
+            return ("icloud.fill", nativeTeal.opacity(MenuBarLayoutTokens.Opacity.solid))
         }
         if network.contains("tcp") {
             return ("network", nativeInfo.opacity(MenuBarLayoutTokens.Opacity.solid))
@@ -467,11 +471,14 @@ struct ConnectionsTabView: TranslatingView {
         let destinationIP = conn.metadata?.destinationIP ?? ""
         let sourceIP = conn.metadata?.sourceIP ?? ""
         let network = conn.metadata?.network ?? ""
+        let processName = conn.metadata?.processName ?? ""
+        let processPath = conn.metadata?.processPath ?? ""
+        let pid = conn.metadata?.pid.map(String.init) ?? ""
         let id = conn.id
         let rule = conn.rule ?? ""
         let rulePayload = conn.rulePayload ?? ""
         let chains = self.connectionChainsParts(conn.chains).joined(separator: " > ")
         let start = conn.start ?? ""
-        return "\(host) \(destinationIP) \(sourceIP) \(network) \(id) \(rule) \(rulePayload) \(chains) \(start)"
+        return "\(host) \(destinationIP) \(sourceIP) \(network) \(processName) \(processPath) \(pid) \(id) \(rule) \(rulePayload) \(chains) \(start)"
     }
 }
