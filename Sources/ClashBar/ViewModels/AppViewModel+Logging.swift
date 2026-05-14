@@ -22,6 +22,9 @@ extension AppViewModel {
     }
 
     func appendMihomoLog(level: String, message: String) {
+        if message.contains("Initial configuration complete") {
+            self.mihomoInitialConfigurationCompleted = true
+        }
         self.appendLog(source: .mihomo, level: level, message: message)
     }
 

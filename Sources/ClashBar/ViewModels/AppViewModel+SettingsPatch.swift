@@ -95,23 +95,33 @@ extension AppViewModel {
         self.deferredEditableSettingsOverlayTask = Task { [weak self] in
             guard let self else { return }
 
-            for _ in 0..<120 {
-                if Task.isCancelled { return }
-                guard self.isRuntimeRunning else { return }
-                if await self.applyDeferredEditableSettingsOverlayIfPossible() {
-                    self.deferredEditableSettingsOverlayTask = nil
-                    return
-                }
-
-                do {
-                    try await Task.sleep(nanoseconds: 250_000_000)
-                } catch {
-                    return
-                }
-            }
-
+            _ = await self.syncDeferredEditableSettingsOverlayUntilApplied()
             self.deferredEditableSettingsOverlayTask = nil
         }
+    }
+
+    func syncDeferredEditableSettingsOverlayUntilApplied(
+        maxAttempts: Int = 120,
+        sleepNanoseconds: UInt64 = 250_000_000) async -> Bool
+    {
+        self.seedDeferredEditableSettingsOverlayIfNeeded()
+        guard self.deferredEditableSettingsOverlay != nil else { return true }
+
+        for _ in 0..<maxAttempts {
+            if Task.isCancelled { return false }
+            guard self.isRuntimeRunning else { return false }
+            if await self.applyDeferredEditableSettingsOverlayIfPossible() {
+                return true
+            }
+
+            do {
+                try await Task.sleep(nanoseconds: sleepNanoseconds)
+            } catch {
+                return false
+            }
+        }
+
+        return false
     }
 
     func applyDeferredEditableSettingsOverlayIfPossible() async -> Bool {
@@ -121,11 +131,35 @@ extension AppViewModel {
         let applied = await self.applyEditableSettingsOverlay(
             deferred.snapshot,
             syncingKey: deferred.syncingKey,
-            successMessage: "")
+            successMessage: "",
+            includeMode: deferred.includeMode)
         if applied {
+            switch deferred.syncingKey {
+            case "app-launch-overlay":
+                self.pendingAppLaunchOverlaySettings = nil
+            case "config-switch-overlay":
+                self.pendingConfigSwitchOverlaySettings = nil
+            default:
+                break
+            }
             self.deferredEditableSettingsOverlay = nil
         }
         return applied
+    }
+
+    func applyPendingEditableSettingsOverlayBeforeRefreshIfNeeded() async {
+        _ = await self.syncDeferredEditableSettingsOverlayUntilApplied()
+    }
+
+    private func seedDeferredEditableSettingsOverlayIfNeeded() {
+        guard self.deferredEditableSettingsOverlay == nil else { return }
+        if let overlay = self.pendingAppLaunchOverlaySettings {
+            self.deferredEditableSettingsOverlay = (snapshot: overlay, syncingKey: "app-launch-overlay", includeMode: false)
+            return
+        }
+        if let overlay = self.pendingConfigSwitchOverlaySettings {
+            self.deferredEditableSettingsOverlay = (snapshot: overlay, syncingKey: "config-switch-overlay", includeMode: false)
+        }
     }
 
     private func isCoreAPIReachableForOverlaySync() async -> Bool {

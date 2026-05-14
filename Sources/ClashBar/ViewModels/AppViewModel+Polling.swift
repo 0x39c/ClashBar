@@ -214,17 +214,22 @@ extension AppViewModel {
     }
 
     private func applyRuntimeConfigSnapshot(_ config: ConfigSnapshot) {
-        let remoteMode = normalizeMode(config.mode)
-        if let remoteMode {
-            currentMode = remoteMode
-        }
-        logLevel = config.logLevel ?? logLevel
+        if !self.suppressRuntimeEditableSettingsSync {
+            let remoteMode = normalizeMode(config.mode)
+            if let remoteMode {
+                currentMode = remoteMode
+            }
+            logLevel = config.logLevel ?? logLevel
 
-        port = config.port
-        socksPort = config.socksPort
-        redirPort = config.redirPort
-        tproxyPort = config.tproxyPort
-        mixedPort = config.mixedPort ?? 0
+            port = config.port
+            socksPort = config.socksPort
+            redirPort = config.redirPort
+            tproxyPort = config.tproxyPort
+            mixedPort = config.mixedPort ?? 0
+
+            syncEditableSettings(from: config)
+            refreshLogsStreamLevelIfNeeded()
+        }
 
         if !self.isRemoteTarget, let externalController = config.externalController {
             applyExternalControllerFromConfig(externalController)
@@ -234,8 +239,6 @@ extension AppViewModel {
                 hasURL: config.externalUIURL.trimmedNonEmpty != nil,
                 name: config.externalUIName)
         }
-        syncEditableSettings(from: config)
-        refreshLogsStreamLevelIfNeeded()
     }
 
     func resetTrafficPresentation() {

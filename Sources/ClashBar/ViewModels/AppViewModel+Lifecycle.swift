@@ -5,7 +5,6 @@ import Foundation
 extension AppViewModel {
     private struct CoreBootstrapOptions {
         let overlaySyncingKey: String
-        let providerTrigger: ProviderRefreshTrigger
         let refreshProxyGroupsAfterBootstrap: Bool
         let refreshSystemProxyBeforeOverlay: Bool
         let refreshSystemProxyAfterBootstrap: Bool
@@ -25,6 +24,8 @@ extension AppViewModel {
         }
         coreActionState = .starting
         defer { coreActionState = .idle }
+        suppressRuntimeEditableSettingsSync = true
+        defer { suppressRuntimeEditableSettingsSync = false }
         var settingsOverlay = currentEditableSettingsSnapshot()
         settingsOverlay = self.overlayApplyingPendingCoreFeatureRecovery(settingsOverlay)
         preserveLocalSettingsOnNextSync = true
@@ -60,7 +61,6 @@ extension AppViewModel {
                 settingsOverlay: settingsOverlay,
                 options: CoreBootstrapOptions(
                     overlaySyncingKey: "start-overlay",
-                    providerTrigger: .start,
                     refreshProxyGroupsAfterBootstrap: false,
                     refreshSystemProxyBeforeOverlay: true,
                     refreshSystemProxyAfterBootstrap: false,
@@ -115,7 +115,10 @@ extension AppViewModel {
         guard !isCoreActionProcessing else { return }
         coreActionState = .restarting
         defer { coreActionState = .idle }
+        suppressRuntimeEditableSettingsSync = true
+        defer { suppressRuntimeEditableSettingsSync = false }
         preserveLocalSettingsOnNextSync = true
+        mihomoInitialConfigurationCompleted = false
         cancelProviderRefresh(reason: "restart requested")
         do {
             guard let configPath = await resolveSelectedConfigPath() else {
@@ -141,7 +144,6 @@ extension AppViewModel {
                 settingsOverlay: settingsOverlay,
                 options: CoreBootstrapOptions(
                     overlaySyncingKey: "restart-overlay",
-                    providerTrigger: trigger,
                     refreshProxyGroupsAfterBootstrap: true,
                     refreshSystemProxyBeforeOverlay: false,
                     refreshSystemProxyAfterBootstrap: true,
@@ -315,16 +317,17 @@ extension AppViewModel {
         apiStatus = .healthy
         resetTrafficPresentation()
         ensureAPIClient()
-        startPolling()
-        await refreshFromAPI(includeSlowCalls: true)
-
+        await self.waitForMihomoInitialConfigurationComplete()
         await self.syncEditableSettingsOverlayForCoreBootstrap(
             settingsOverlay,
             syncingKey: options.overlaySyncingKey)
+        _ = await self.syncDeferredEditableSettingsOverlayUntilApplied()
+        startPolling()
+        await refreshFromAPI(includeSlowCalls: true)
+
         await validateTunPermissionsOnStartup()
         await ensureTunMixedStackOnStartupIfNeeded()
         await self.verifyTunAfterOverlayIfNeeded(overlay: settingsOverlay)
-        enqueueProviderRefresh(trigger: options.providerTrigger)
 
         if options.refreshProxyGroupsAfterBootstrap {
             await self.refreshProxyGroupsAfterRestart()
@@ -339,10 +342,28 @@ extension AppViewModel {
         startupErrorMessage = nil
         await self.restoreCoreFeaturesAfterStartupIfNeeded()
         enforceNetworkManagedCorePolicyIfNeeded()
+        await self.switchMode(to: settingsOverlay.mode)
+        suppressRuntimeEditableSettingsSync = false
+        await refreshFromAPI(includeSlowCalls: false)
 
         if options.autoTestGroupLatencies {
             Task { [weak self] in
                 await self?.refreshAllGroupLatencies()
+            }
+        }
+    }
+
+    func waitForMihomoInitialConfigurationComplete(
+        timeoutNanoseconds: UInt64 = 5_000_000_000) async
+    {
+        guard !self.mihomoInitialConfigurationCompleted else { return }
+
+        for _ in 0..<50 {
+            if self.mihomoInitialConfigurationCompleted { return }
+            do {
+                try await Task.sleep(nanoseconds: timeoutNanoseconds / 50)
+            } catch {
+                return
             }
         }
     }

@@ -192,29 +192,34 @@ extension AppViewModel {
 
     func applyPendingConfigSwitchSettingsOverlayIfNeeded() async {
         guard let overlay = pendingConfigSwitchOverlaySettings else { return }
+        await self.waitForMihomoInitialConfigurationComplete()
         pendingConfigSwitchOverlaySettings = nil
         _ = await self.applyEditableSettingsOverlay(
             overlay,
             syncingKey: "config-switch-overlay",
-            successMessage: tr("app.settings.overlay_success"))
+            successMessage: tr("app.settings.overlay_success"),
+            includeMode: false)
     }
 
     func applyPendingAppLaunchSettingsOverlayIfNeeded(syncSystemProxyPort: Bool = true) async {
         guard let overlay = pendingAppLaunchOverlaySettings else { return }
         guard apiStatus == .healthy else { return }
+        await self.waitForMihomoInitialConfigurationComplete()
         pendingAppLaunchOverlaySettings = nil
         _ = await self.applyEditableSettingsOverlay(
             overlay,
             syncingKey: "app-launch-overlay",
             successMessage: "",
-            syncSystemProxyPort: syncSystemProxyPort)
+            syncSystemProxyPort: syncSystemProxyPort,
+            includeMode: false)
     }
 
     func syncEditableSettingsOverlayForCoreBootstrap(
         _ overlay: EditableSettingsSnapshot,
-        syncingKey: String) async
+        syncingKey: String,
+        includeMode: Bool = false) async
     {
-        self.deferredEditableSettingsOverlay = (snapshot: overlay, syncingKey: syncingKey)
+        self.deferredEditableSettingsOverlay = (snapshot: overlay, syncingKey: syncingKey, includeMode: includeMode)
 
         if await self.applyDeferredEditableSettingsOverlayIfPossible() {
             self.deferredEditableSettingsOverlayTask?.cancel()
@@ -236,7 +241,8 @@ extension AppViewModel {
         _ overlay: EditableSettingsSnapshot,
         syncingKey: String,
         successMessage: String,
-        syncSystemProxyPort: Bool = true) async -> Bool
+        syncSystemProxyPort: Bool = true,
+        includeMode: Bool = true) async -> Bool
     {
         let fallback = lastSyncedEditableSettings
         let resolvedLogLevel = overlay.logLevel.trimmed.isEmpty
@@ -259,12 +265,14 @@ extension AppViewModel {
         else { return false }
 
         var body: [String: ConfigPatchValue] = [
-            "mode": .string(overlay.mode.rawValue),
             "allow-lan": .bool(overlay.allowLan),
             "ipv6": .bool(overlay.ipv6),
             "tcp-concurrent": .bool(overlay.tcpConcurrent),
             "log-level": .string(resolvedLogLevel),
         ]
+        if includeMode {
+            body["mode"] = .string(overlay.mode.rawValue)
+        }
         let tunBody = await self.tunOverlayPatchBody(enabled: overlay.tunEnabled)
         body["tun"] = .object(tunBody)
         if overlay.tunEnabled {

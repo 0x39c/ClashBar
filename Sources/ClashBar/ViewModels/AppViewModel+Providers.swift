@@ -151,14 +151,6 @@ extension AppViewModel {
 
         publishUpdatingProgress()
 
-        do {
-            try await self.clientOrThrow().requestNoResponse(.putConfigs(force: true))
-            appendLog(level: "info", message: tr("log.providers.config_reload_success"))
-        } catch {
-            failed += 1
-            appendLog(level: "error", message: tr("log.providers.config_reload_failed", error.localizedDescription))
-        }
-
         guard checkpoint() else { return }
 
         let proxyResult = await self.updateProvidersSequential(

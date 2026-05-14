@@ -231,6 +231,8 @@ final class AppViewModel: ObservableObject {
     var pendingConfigSwitchOverlaySettings: EditableSettingsSnapshot?
     var pendingAppLaunchOverlaySettings: EditableSettingsSnapshot?
     var suppressSettingsPersistence = false
+    var suppressRuntimeEditableSettingsSync = false
+    var mihomoInitialConfigurationCompleted = false
 
     var runtimeVisualStatus: RuntimeVisualStatus {
         let normalized = self.statusText.lowercased()
@@ -471,7 +473,7 @@ final class AppViewModel: ObservableObject {
     var isNetworkReachabilityMonitoring = false
     var isSSIDStrategyMonitoring = false
     var pendingCoreFeatureRecoveryState: CoreFeatureRecoveryState?
-    var deferredEditableSettingsOverlay: (snapshot: EditableSettingsSnapshot, syncingKey: String)?
+    var deferredEditableSettingsOverlay: (snapshot: EditableSettingsSnapshot, syncingKey: String, includeMode: Bool)?
     var remoteConfigSubscriptions: [String: RemoteConfigSubscription] = [:]
     var ssidStrategyLastLogFingerprint: String?
     var pendingSSIDBindingConfigFileName: String?

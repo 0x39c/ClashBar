@@ -15,9 +15,13 @@ extension AppViewModel {
         do {
             try await self.modeSwitchTransport()
                 .requestNoResponse(.patchConfigs(body: ["mode": .string(target.rawValue)]))
+
+            guard await self.confirmModeSwitchApplied(target) else {
+                throw ModeSwitchVerificationError.unconfirmed(target)
+            }
         } catch {
             // Roll back the optimistic update so UI and state do not silently drift
-            // away from the core after a rejected PATCH.
+            // away from the core after a rejected or not-yet-applied PATCH.
             currentMode = previous
             persistEditableSettingsSnapshot()
             appendLog(
@@ -27,6 +31,38 @@ extension AppViewModel {
                     tr("log.action_name.switch_mode", target.rawValue),
                     error.localizedDescription))
         }
+    }
+
+    private enum ModeSwitchVerificationError: LocalizedError {
+        case unconfirmed(CoreMode)
+
+        var errorDescription: String? {
+            switch self {
+            case let .unconfirmed(target):
+                "mode patch not confirmed: \(target.rawValue)"
+            }
+        }
+    }
+
+    private func confirmModeSwitchApplied(_ target: CoreMode) async -> Bool {
+        for _ in 0..<8 {
+            do {
+                let config: ConfigSnapshot = try await self.clientOrThrow().request(.getConfigs)
+                if normalizeMode(config.mode) == target {
+                    return true
+                }
+            } catch {
+                // Keep retrying while the core is finishing startup or reloading config.
+            }
+
+            do {
+                try await Task.sleep(nanoseconds: 125_000_000)
+            } catch {
+                return false
+            }
+        }
+
+        return false
     }
 
     func toggleSystemProxy(_ enabled: Bool) async {
