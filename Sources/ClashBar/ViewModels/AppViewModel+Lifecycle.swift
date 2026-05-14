@@ -22,6 +22,7 @@ extension AppViewModel {
         if trigger == .manual {
             shouldResumeCoreAfterNetworkRecovery = false
         }
+        appendLog(level: "info", message: "core start begin trigger=\(trigger)")
         coreActionState = .starting
         defer { coreActionState = .idle }
         suppressRuntimeEditableSettingsSync = true
@@ -94,6 +95,7 @@ extension AppViewModel {
         if trigger == .manual {
             shouldResumeCoreAfterNetworkRecovery = false
         }
+        appendLog(level: "info", message: "core stop begin trigger=\(trigger)")
         let recoverySnapshotBeforeStop = self.currentCoreFeatureRecoverySnapshot()
         coreActionState = .stopping
         defer { coreActionState = .idle }
@@ -113,6 +115,7 @@ extension AppViewModel {
     func restartCore(trigger: ProviderRefreshTrigger = .restart) async {
         guard !self.isRemoteTarget else { return }
         guard !isCoreActionProcessing else { return }
+        appendLog(level: "info", message: "core restart begin trigger=\(trigger)")
         coreActionState = .restarting
         defer { coreActionState = .idle }
         suppressRuntimeEditableSettingsSync = true
@@ -317,16 +320,22 @@ extension AppViewModel {
         apiStatus = .healthy
         resetTrafficPresentation()
         ensureAPIClient()
+        appendLog(level: "info", message: "core bootstrap wait initial configuration complete")
         await self.waitForMihomoInitialConfigurationComplete()
+        appendLog(level: "info", message: "core bootstrap initial configuration complete")
+        appendLog(level: "info", message: "core bootstrap queue overlay syncingKey=\(options.overlaySyncingKey)")
         await self.syncEditableSettingsOverlayForCoreBootstrap(
             settingsOverlay,
             syncingKey: options.overlaySyncingKey)
-        _ = await self.syncDeferredEditableSettingsOverlayUntilApplied()
+        let deferredApplied = await self.syncDeferredEditableSettingsOverlayUntilApplied()
+        appendLog(level: "info", message: "core bootstrap deferred overlay applied=\(deferredApplied)")
         startPolling()
+        appendLog(level: "info", message: "core bootstrap refreshFromAPI includeSlowCalls=true")
         await refreshFromAPI(includeSlowCalls: true)
 
         await validateTunPermissionsOnStartup()
         await ensureTunMixedStackOnStartupIfNeeded()
+        appendLog(level: "info", message: "core bootstrap verify tun after overlay")
         await self.verifyTunAfterOverlayIfNeeded(overlay: settingsOverlay)
 
         if options.refreshProxyGroupsAfterBootstrap {
@@ -340,10 +349,13 @@ extension AppViewModel {
 
         defaults.set(configPath, forKey: lastSuccessfulConfigPathKey)
         startupErrorMessage = nil
+        appendLog(level: "info", message: "core bootstrap restore core features and policy")
         await self.restoreCoreFeaturesAfterStartupIfNeeded()
         enforceNetworkManagedCorePolicyIfNeeded()
+        appendLog(level: "info", message: "core bootstrap switch mode target=\(settingsOverlay.mode.rawValue)")
         await self.switchMode(to: settingsOverlay.mode)
         suppressRuntimeEditableSettingsSync = false
+        appendLog(level: "info", message: "core bootstrap refreshFromAPI includeSlowCalls=false")
         await refreshFromAPI(includeSlowCalls: false)
 
         if options.autoTestGroupLatencies {
@@ -357,15 +369,21 @@ extension AppViewModel {
         timeoutNanoseconds: UInt64 = 5_000_000_000) async
     {
         guard !self.mihomoInitialConfigurationCompleted else { return }
+        appendLog(level: "info", message: "wait for mihomo initial configuration complete begin")
 
         for _ in 0..<50 {
-            if self.mihomoInitialConfigurationCompleted { return }
+            if self.mihomoInitialConfigurationCompleted {
+                appendLog(level: "info", message: "wait for mihomo initial configuration complete end")
+                return
+            }
             do {
                 try await Task.sleep(nanoseconds: timeoutNanoseconds / 50)
             } catch {
+                appendLog(level: "info", message: "wait for mihomo initial configuration complete cancelled")
                 return
             }
         }
+        appendLog(level: "info", message: "wait for mihomo initial configuration complete timeout")
     }
 
     private func overlayApplyingPendingCoreFeatureRecovery(_ overlay: EditableSettingsSnapshot)
@@ -413,15 +431,15 @@ extension AppViewModel {
         let recovery = self.mergeCoreFeatureRecoveryStates(baseRecovery, self.pendingCoreFeatureRecoveryState)
         self.pendingCoreFeatureRecoveryState = recovery.shouldRecoverAnyFeature ? recovery : nil
 
-        if runtimeRunningBeforeTransition, recovery.tunEnabled {
-            if transitionKind == .stop, disableRuntimeTunBeforeStop {
-                do {
-                    try await self.applyTunRuntimeChange(enabled: false)
-                } catch {
-                    self.appendLog(
-                        level: "error",
-                        message: self.tr("log.tun.toggle_failed", self.tunErrorMessage(error)))
-                }
+        if runtimeRunningBeforeTransition, recovery.tunEnabled,
+           transitionKind == .stop, disableRuntimeTunBeforeStop
+        {
+            do {
+                try await self.applyTunRuntimeChange(enabled: false)
+            } catch {
+                self.appendLog(
+                    level: "error",
+                    message: self.tr("log.tun.toggle_failed", self.tunErrorMessage(error)))
             }
             self.isTunEnabled = false
             self.appendLog(level: "info", message: self.tr("log.tun.toggled", self.tr("log.tun.disabled")))

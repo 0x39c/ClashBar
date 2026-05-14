@@ -214,8 +214,15 @@ extension AppViewModel {
     }
 
     private func applyRuntimeConfigSnapshot(_ config: ConfigSnapshot) {
-        if !self.suppressRuntimeEditableSettingsSync {
-            let remoteMode = normalizeMode(config.mode)
+        let remoteMode = normalizeMode(config.mode)
+        let modeDescription = remoteMode?.rawValue ?? (config.mode ?? "nil")
+        let tunDescription = String(describing: config.tunEnabled)
+        let portDescription = String(describing: config.port)
+        let mixedDescription = String(describing: config.mixedPort ?? 0)
+        if self.suppressRuntimeEditableSettingsSync {
+            appendLog(level: "info", message: "runtime snapshot suppressed mode=\(modeDescription) tun=\(tunDescription) port=\(portDescription) mixed=\(mixedDescription)")
+        } else {
+            appendLog(level: "info", message: "runtime snapshot apply mode=\(modeDescription) tun=\(tunDescription) port=\(portDescription) mixed=\(mixedDescription)")
             if let remoteMode {
                 currentMode = remoteMode
             }
