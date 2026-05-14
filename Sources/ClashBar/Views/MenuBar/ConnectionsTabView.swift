@@ -238,8 +238,8 @@ struct ConnectionsTabView: TranslatingView {
             self.connectionsMetricColumn(
                 symbol: "arrow.down",
                 text: down,
-                symbolColor: nativePositive.opacity(MenuBarLayoutTokens.Opacity.solid),
-                textColor: nativePositive.opacity(MenuBarLayoutTokens.Opacity.solid),
+                symbolColor: nativeTeal.opacity(MenuBarLayoutTokens.Opacity.solid),
+                textColor: nativeTeal.opacity(MenuBarLayoutTokens.Opacity.solid),
                 spacing: 0,
                 truncation: .tail,
                 width: columnWidth)

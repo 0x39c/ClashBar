@@ -338,11 +338,11 @@ extension View {
     }
 
     var nativePositive: Color {
-        Color(nsColor: .systemGreen)
+        Color(red: 0.30, green: 0.60, blue: 0.48)
     }
 
     var nativeWarning: Color {
-        Color(nsColor: .systemOrange)
+        Color(red: 0.76, green: 0.56, blue: 0.24)
     }
 
     var nativeCritical: Color {

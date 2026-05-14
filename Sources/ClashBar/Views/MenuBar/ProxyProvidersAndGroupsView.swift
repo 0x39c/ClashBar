@@ -61,7 +61,7 @@ extension ProxyTabView {
         let updatedText = ValueFormatter.relativeTime(from: detail?.updatedAt, language: language)
         let expireSeconds = detail?.subscriptionInfo?.expire
         let expireText = ValueFormatter.daysUntilExpiryShort(from: expireSeconds, language: language)
-        let expireColor: Color = expireSeconds == 0 ? nativeSecondaryLabel : nativeWarning
+        let expireColor: Color = expireSeconds == 0 ? nativeSecondaryLabel : nativeInfo
         let upload = detail?.subscriptionInfo?.upload
         let download = detail?.subscriptionInfo?.download
         let total = detail?.subscriptionInfo?.total

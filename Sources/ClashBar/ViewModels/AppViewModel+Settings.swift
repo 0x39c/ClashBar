@@ -192,7 +192,6 @@ extension AppViewModel {
 
     func applyPendingConfigSwitchSettingsOverlayIfNeeded() async {
         guard let overlay = pendingConfigSwitchOverlaySettings else { return }
-        appendLog(level: "info", message: "config switch overlay apply begin includeMode=false")
         await self.waitForMihomoInitialConfigurationComplete()
         pendingConfigSwitchOverlaySettings = nil
         _ = await self.applyEditableSettingsOverlay(
@@ -205,7 +204,6 @@ extension AppViewModel {
     func applyPendingAppLaunchSettingsOverlayIfNeeded(syncSystemProxyPort: Bool = true) async {
         guard let overlay = pendingAppLaunchOverlaySettings else { return }
         guard apiStatus == .healthy else { return }
-        appendLog(level: "info", message: "app launch overlay apply begin includeMode=false")
         await self.waitForMihomoInitialConfigurationComplete()
         pendingAppLaunchOverlaySettings = nil
         _ = await self.applyEditableSettingsOverlay(
@@ -221,7 +219,6 @@ extension AppViewModel {
         syncingKey: String,
         includeMode: Bool = true) async
     {
-        appendLog(level: "info", message: "deferred overlay set syncingKey=\(syncingKey) includeMode=\(includeMode)")
         self.deferredEditableSettingsOverlay = (snapshot: overlay, syncingKey: syncingKey, includeMode: includeMode)
 
         if await self.applyDeferredEditableSettingsOverlayIfPossible() {
@@ -247,7 +244,6 @@ extension AppViewModel {
         syncSystemProxyPort: Bool = true,
         includeMode: Bool = true) async -> Bool
     {
-        appendLog(level: "info", message: "editable overlay patch begin syncingKey=\(syncingKey) includeMode=\(includeMode) mode=\(overlay.mode.rawValue) tun=\(overlay.tunEnabled) port=\(overlay.port) mixed=\(overlay.mixedPort)")
         let fallback = lastSyncedEditableSettings
         let resolvedLogLevel = overlay.logLevel.trimmed.isEmpty
             ? (fallback?.logLevel ?? ConfigLogLevel.info.rawValue)

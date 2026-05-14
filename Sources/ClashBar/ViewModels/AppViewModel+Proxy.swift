@@ -7,7 +7,6 @@ extension AppViewModel {
         modeSwitchInFlight = true
         defer { modeSwitchInFlight = false }
 
-        appendLog(level: "info", message: "mode switch begin from=\(currentMode.rawValue) to=\(target.rawValue)")
         // Optimistic UI update: keep interaction snappy, polling will reconcile if server differs.
         let previous = currentMode
         currentMode = target
@@ -20,11 +19,9 @@ extension AppViewModel {
             guard await self.confirmModeSwitchApplied(target) else {
                 throw ModeSwitchVerificationError.unconfirmed(target)
             }
-            appendLog(level: "info", message: "mode switch confirmed target=\(target.rawValue)")
         } catch {
             // Roll back the optimistic update so UI and state do not silently drift
             // away from the core after a rejected or not-yet-applied PATCH.
-            appendLog(level: "error", message: "mode switch failed from=\(previous.rawValue) to=\(target.rawValue): \(error.localizedDescription)")
             currentMode = previous
             persistEditableSettingsSnapshot()
             appendLog(

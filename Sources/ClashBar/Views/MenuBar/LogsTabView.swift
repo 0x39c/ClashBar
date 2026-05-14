@@ -361,8 +361,8 @@ struct LogsTabView: TranslatingView {
             message = message.replacingOccurrences(of: tag, with: "").trimmed
 
             let upper = tag.uppercased()
-            if upper.contains("UDP") { protocolColor = nativeWarning.opacity(T.Opacity.solid) }
-            if upper.contains("DNS") { protocolColor = nativePositive.opacity(T.Opacity.solid) }
+            if upper.contains("UDP") { protocolColor = nativeInfo.opacity(T.Opacity.solid) }
+            if upper.contains("DNS") { protocolColor = nativeTeal.opacity(T.Opacity.solid) }
             if upper.contains("HTTP") { protocolColor = nativeAccent.opacity(T.Opacity.solid) }
         }
 

@@ -128,7 +128,6 @@ extension AppViewModel {
         guard let deferred = self.deferredEditableSettingsOverlay else { return true }
         guard await self.isCoreAPIReachableForOverlaySync() else { return false }
 
-        appendLog(level: "info", message: "deferred overlay apply attempt syncingKey=\(deferred.syncingKey) includeMode=\(deferred.includeMode)")
         let applied = await self.applyEditableSettingsOverlay(
             deferred.snapshot,
             syncingKey: deferred.syncingKey,
@@ -248,10 +247,8 @@ extension AppViewModel {
 
     func reconcileEditableSettingsWithRuntimeConfig() async {
         do {
-            appendLog(level: "info", message: "settings reconcile begin")
             let config = try await self.fetchRuntimeConfigSnapshot()
             let incoming = EditableSettingsSnapshot(config: config)
-            appendLog(level: "info", message: "settings reconcile apply mode=\(incoming.mode.rawValue) tun=\(incoming.tunEnabled) port=\(incoming.port) mixed=\(incoming.mixedPort)")
             self.applyEditableSettingsSnapshotToUI(incoming)
             self.lastSyncedEditableSettings = incoming
             self.persistEditableSettingsSnapshot()

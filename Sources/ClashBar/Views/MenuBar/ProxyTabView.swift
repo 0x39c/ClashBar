@@ -492,7 +492,7 @@ struct ProxyTabView: TranslatingView {
             self.quickRowContent(
                 title: self.tr("ui.quick.copy_terminal"),
                 symbol: "terminal",
-                foreground: nativeWarning,
+                foreground: nativeInfo,
                 trailingFitsContent: true)
             {
                 HStack(spacing: 2) {
