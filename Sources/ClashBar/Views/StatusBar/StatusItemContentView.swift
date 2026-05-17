@@ -28,14 +28,14 @@ final class StatusItemContentView: NSView {
     private var currentDisplay: MenuBarDisplay?
     private var cachedUpLine: String = ""
     private var cachedDownLine: String = ""
-    private lazy var runBrandStatusIconImage: NSImage? = Self.makeBrandStatusIconImage(
-        source: BrandIcon.runProxyImage, size: brandIconRenderSize)
+    private lazy var runBrandStatusIconImage: NSImage? = Self.makeGlyphStatusIconImage(
+        glyph: "", size: brandIconRenderSize)
     private lazy var sleepBrandStatusIconImage: NSImage? = Self.makeBrandStatusIconImage(
         source: BrandIcon.sleepImage, size: brandIconRenderSize)
-    private lazy var globalBrandStatusIconImage: NSImage? = Self.makeBrandStatusIconImage(
-        source: BrandIcon.runGlobalImage, size: brandIconRenderSize)
-    private lazy var directBrandStatusIconImage: NSImage? = Self.makeBrandStatusIconImage(
-        source: BrandIcon.runDirectImage, size: brandIconRenderSize)
+    private lazy var globalBrandStatusIconImage: NSImage? = Self.makeGlyphStatusIconImage(
+        glyph: "", size: brandIconRenderSize)
+    private lazy var directBrandStatusIconImage: NSImage? = Self.makeGlyphStatusIconImage(
+        glyph: "", size: brandIconRenderSize)
     private static let brandIconRenderScales: [CGFloat] = [1, 2, 3]
 
     var usesBrandIcon: Bool {
@@ -275,6 +275,64 @@ final class StatusItemContentView: NSView {
         guard rendered.representations.isEmpty == false else { return nil }
         rendered.isTemplate = true
         return rendered
+    }
+
+    private static func makeGlyphStatusIconImage(glyph: String, size: CGFloat) -> NSImage? {
+        let targetSize = NSSize(width: size, height: size)
+        let fontNames = [
+            "Maple Mono NF CN",
+            "Maple Mono NF CN Regular",
+            "Maple Mono NF CN Medium",
+        ]
+
+        for fontName in fontNames {
+            guard let font = NSFont(name: fontName, size: size * 0.60) else { continue }
+            let image = NSImage(size: targetSize)
+            for scale in Self.brandIconRenderScales {
+                let pixelWidth = max(1, Int((targetSize.width * scale).rounded(.up)))
+                let pixelHeight = max(1, Int((targetSize.height * scale).rounded(.up)))
+                guard let rep = NSBitmapImageRep(
+                    bitmapDataPlanes: nil,
+                    pixelsWide: pixelWidth,
+                    pixelsHigh: pixelHeight,
+                    bitsPerSample: 8,
+                    samplesPerPixel: 4,
+                    hasAlpha: true,
+                    isPlanar: false,
+                    colorSpaceName: .deviceRGB,
+                    bytesPerRow: 0,
+                    bitsPerPixel: 0)
+                else { continue }
+                rep.size = targetSize
+                guard let context = NSGraphicsContext(bitmapImageRep: rep) else { continue }
+
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = context
+                context.imageInterpolation = .high
+
+                let paragraph = NSMutableParagraphStyle()
+                paragraph.alignment = .center
+                let attributes: [NSAttributedString.Key: Any] = [
+                    .font: font,
+                    .foregroundColor: NSColor.black,
+                    .paragraphStyle: paragraph,
+                ]
+                let rect = CGRect(
+                    x: size * 0.04,
+                    y: size * 0.13,
+                    width: size * 0.80,
+                    height: size * 0.80)
+                (glyph as NSString).draw(in: rect, withAttributes: attributes)
+
+                NSGraphicsContext.restoreGraphicsState()
+                image.addRepresentation(rep)
+            }
+            guard image.representations.isEmpty == false else { continue }
+            image.isTemplate = true
+            return image
+        }
+
+        return nil
     }
 
     private static func makeBrandStatusIconRepresentation(
