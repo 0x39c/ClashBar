@@ -4,11 +4,14 @@ import Foundation
 extension AppViewModel {
     func startPolling() {
         self.teardownStreams()
+        guard self.isControllerAccessEnabled || self.isRemoteTarget else { return }
         self.ensurePeriodicTasksForCurrentVisibility()
         self.updateDataAcquisitionPolicy()
     }
 
     func cancelPolling() {
+        activatedTabRefreshTask?.cancel()
+        activatedTabRefreshTask = nil
         self.teardownStreams()
     }
 
@@ -42,6 +45,13 @@ extension AppViewModel {
     }
 
     private func ensurePeriodicTasksForCurrentVisibility() {
+        guard self.isControllerAccessEnabled || self.isRemoteTarget else {
+            mediumFrequencyTask?.cancel()
+            mediumFrequencyTask = nil
+            lowFrequencyTask?.cancel()
+            lowFrequencyTask = nil
+            return
+        }
         guard isPanelPresented else {
             mediumFrequencyTask?.cancel()
             mediumFrequencyTask = nil
@@ -62,6 +72,12 @@ extension AppViewModel {
     }
 
     func refreshFromAPI(includeSlowCalls: Bool) async {
+        guard self.isControllerAccessEnabled || self.isRemoteTarget else {
+            self.apiStatus = .unknown
+            self.updateDataAcquisitionPolicy()
+            return
+        }
+
         await self.refreshHighFrequency()
         await self.refreshMediumFrequency()
         if includeSlowCalls {
@@ -104,7 +120,8 @@ extension AppViewModel {
     private func scheduleRefreshForActivatedTab(_ tab: RootTab) {
         activatedTabRefreshGeneration += 1
         let generation = activatedTabRefreshGeneration
-        Task { [weak self] in
+        activatedTabRefreshTask?.cancel()
+        activatedTabRefreshTask = Task { [weak self] in
             guard let self else { return }
             await self.refreshForActivatedTab(tab, generation: generation)
         }
@@ -127,10 +144,12 @@ extension AppViewModel {
     }
 
     func updateDataAcquisitionPolicy() {
-        guard self.isRemoteTarget || self.coreRepository.isRunning else {
-            self.ensurePeriodicTasksForCurrentVisibility()
+        guard self.isControllerAccessEnabled && (self.isRemoteTarget || self.coreRepository.isRunning) else {
             mediumFrequencyIntervalNanoseconds = foregroundMediumFrequencyIntervalNanoseconds
             lowFrequencyIntervalNanoseconds = foregroundLowFrequencyPrimaryTabsIntervalNanoseconds
+            self.apiStatus = .unknown
+            self.teardownStreams()
+            self.ensurePeriodicTasksForCurrentVisibility()
             return
         }
 
@@ -145,7 +164,13 @@ extension AppViewModel {
     }
 
     func refreshForActivatedTab(_ tab: RootTab, generation: Int? = nil) async {
-        guard self.isRemoteTarget || self.coreRepository.isRunning else { return }
+        guard self.isControllerAccessEnabled && (self.isRemoteTarget || self.coreRepository.isRunning) else {
+            guard tab == .system else { return }
+            if !self.isRemoteTarget, self.hasSystemProxyOpenIntent {
+                await self.refreshSystemProxyStatus()
+            }
+            return
+        }
 
         func shouldContinueRefresh() -> Bool {
             guard let generation else { return true }
@@ -232,9 +257,6 @@ extension AppViewModel {
             refreshLogsStreamLevelIfNeeded()
         }
 
-        if !self.isRemoteTarget, let externalController = config.externalController {
-            applyExternalControllerFromConfig(externalController)
-        }
         if self.isRemoteTarget || config.externalUIURL != nil || config.externalUIName != nil {
             self.applyExternalUIConfiguration(
                 hasURL: config.externalUIURL.trimmedNonEmpty != nil,
@@ -450,6 +472,7 @@ extension AppViewModel {
 
 extension AppViewModel {
     func runRefresh(_ block: () async throws -> Void) async {
+        guard self.isControllerAccessEnabled || self.isRemoteTarget else { return }
         do {
             ensureAPIClient()
             try await block()
@@ -461,6 +484,7 @@ extension AppViewModel {
     }
 
     func runNoResponseAction(_ name: String, operation: () async throws -> Void) async {
+        guard self.isControllerAccessEnabled || self.isRemoteTarget else { return }
         do {
             ensureAPIClient()
             try await operation()

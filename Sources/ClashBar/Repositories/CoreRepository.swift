@@ -8,9 +8,9 @@ protocol CoreRepository: AnyObject {
 
     func validateConfig(configPath: String) async throws
     @discardableResult
-    func start(configPath: String, controller: String) async throws -> CoreLifecycleStatus
+    func start(configPath: String, controller: String?, secret: String?) async throws -> CoreLifecycleStatus
     func stop() async
     func stopImmediately()
     @discardableResult
-    func restart(configPath: String, controller: String) async throws -> CoreLifecycleStatus
+    func restart(configPath: String, controller: String?, secret: String?) async throws -> CoreLifecycleStatus
 }

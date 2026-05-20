@@ -139,6 +139,8 @@
 "ui.settings.auto_start_core" = "Auto Start Core";
 "ui.settings.auto_core_network_recovery" = "Stop Offline & Restart on Recovery";
 "ui.settings.launch_at_login" = "Start at Login";
+"ui.settings.controller" = "Controller";
+"ui.settings.controller.disabled" = "Controller Disabled";
 "ui.settings.menu_bar_style" = "Menu Bar Style";
 "ui.settings.language" = "UI Language";
 "ui.settings.appearance" = "Appearance";

@@ -66,6 +66,7 @@ extension AppViewModel {
     }
 
     func toggleSystemProxy(_ enabled: Bool) async {
+        guard self.isControllerAccessEnabled || self.isRemoteTarget else { return }
         isProxySyncing = true
         self.systemProxyEnableIntentInFlight = enabled
         self.clearSystemProxyOpenFailureHint()
@@ -365,6 +366,7 @@ extension AppViewModel {
     }
 
     func openControllerWebUI() {
+        guard self.isControllerAccessEnabled else { return }
         guard let url = URL(string: self.controllerUIURL) else { return }
         _ = NSWorkspace.shared.open(url)
     }

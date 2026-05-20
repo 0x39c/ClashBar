@@ -52,9 +52,13 @@ extension AppViewModel {
                 return
             }
 
-            let launchController = applyExternalControllerFromSelectedConfigFile(configPath: configPath)
+            let launchController = self.prepareLocalControllerCredentialsForLaunch()
             statusText = "Starting"
-            _ = try await self.coreRepository.start(configPath: configPath, controller: launchController)
+            _ = try await self.coreRepository.start(
+                configPath: configPath,
+                controller: launchController,
+                secret: self.controllerSecret)
+            self.refreshControllerUIURL()
 
             await self.completeCoreBootstrap(
                 configPath: configPath,
@@ -131,14 +135,19 @@ extension AppViewModel {
                 return
             }
 
-            let launchController = applyExternalControllerFromSelectedConfigFile(configPath: configPath)
+            self.cancelPolling()
+            let launchController = self.prepareLocalControllerCredentialsForLaunch()
             let recoverySnapshotBeforeRestart = self.currentCoreFeatureRecoverySnapshot()
             await self.prepareCoreFeatureRecoveryBeforeCoreTransition(
                 fallbackRecovery: recoverySnapshotBeforeRestart,
                 transitionKind: .restart,
                 disableRuntimeTunBeforeStop: false)
             let settingsOverlay = self.overlayApplyingPendingCoreFeatureRecovery(currentEditableSettingsSnapshot())
-            _ = try await self.coreRepository.restart(configPath: configPath, controller: launchController)
+            _ = try await self.coreRepository.restart(
+                configPath: configPath,
+                controller: launchController,
+                secret: self.controllerSecret)
+            self.refreshControllerUIURL()
             await self.completeCoreBootstrap(
                 configPath: configPath,
                 settingsOverlay: settingsOverlay,
@@ -313,6 +322,36 @@ extension AppViewModel {
         settingsOverlay: EditableSettingsSnapshot,
         options: CoreBootstrapOptions) async
     {
+        guard self.isControllerAccessEnabled else {
+            statusText = "Running"
+            apiStatus = .unknown
+            resetTrafficPresentation()
+            version = "-"
+            memory = MemorySnapshot(inuse: 0)
+            proxyGroups = []
+            groupLatencies = [:]
+            proxyLatencyTesting = []
+            proxyHistoryLatestDelay = [:]
+            proxyNodeTypes = [:]
+            providerProxyCount = 0
+            providerRuleCount = 0
+            rulesCount = 0
+            proxyProvidersDetail = [:]
+            providerUpdating = []
+            providerRefreshStatus = .idle
+            ruleProviders = [:]
+            ruleItems = []
+            groupLatencyLoading = []
+            isRuleProvidersRefreshing = false
+            selectedProxyProviderName = nil
+            connectionsStore.connections = []
+            connectionsStore.connectionsCount = 0
+            startupErrorMessage = nil
+            defaults.set(configPath, forKey: lastSuccessfulConfigPathKey)
+            self.cancelPolling()
+            return
+        }
+
         statusText = "Running"
         apiStatus = .healthy
         resetTrafficPresentation()
@@ -322,8 +361,8 @@ extension AppViewModel {
             settingsOverlay,
             syncingKey: options.overlaySyncingKey)
         _ = await self.syncDeferredEditableSettingsOverlayUntilApplied()
-        startPolling()
         await refreshFromAPI(includeSlowCalls: true)
+        startPolling()
 
         await validateTunPermissionsOnStartup()
         await ensureTunMixedStackOnStartupIfNeeded()
@@ -462,6 +501,7 @@ extension AppViewModel {
     }
 
     func restoreCoreFeaturesAfterStartupIfNeeded() async {
+        guard self.isControllerAccessEnabled else { return }
         guard let recovery = self.pendingCoreFeatureRecoveryState else { return }
         guard recovery.shouldRecoverAnyFeature else {
             self.pendingCoreFeatureRecoveryState = nil

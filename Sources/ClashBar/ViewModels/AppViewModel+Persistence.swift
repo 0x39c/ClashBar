@@ -71,6 +71,7 @@ extension AppViewModel {
     }
 
     func ensureAPIClient() {
+        guard self.isControllerAccessEnabled else { return }
         if let apiClient {
             apiClient.updateCredentials(controller: controller, secret: controllerSecret)
         } else {

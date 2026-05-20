@@ -9,12 +9,16 @@ final class AppViewModel: ObservableObject {
     }
 
     @Published var version: String = "-"
-    @Published var controller: String = "127.0.0.1:9090"
-    @Published var externalControllerDisplay: String = "127.0.0.1:9090"
-    var localExternalControllerDisplay: String = "127.0.0.1:9090"
-    @Published var controllerUIURL: String =
-        "https://metacubex.github.io/metacubexd/#/setup?http=true&hostname=127.0.0.1&port=9090&secret="
-    @Published var controllerSecret: String?
+    @Published var controller: String = ""
+    @Published var externalControllerDisplay: String = ""
+    var localExternalControllerDisplay: String = ""
+    var localControllerSecret: String?
+    @Published var controllerUIURL: String = ""
+    @Published var controllerSecret: String? {
+        didSet {
+            self.refreshControllerUIURL()
+        }
+    }
     var hasConfiguredExternalUI = false
     var configuredExternalUIName: String?
 
@@ -178,6 +182,14 @@ final class AppViewModel: ObservableObject {
         didSet { self.refreshMenuBarDisplaySnapshotIfNeeded() }
     }
 
+    var isControllerAccessEnabled: Bool {
+        self.isRemoteTarget || self.coreRepository.isRunning
+    }
+
+    var controllerDisplayText: String {
+        self.externalControllerDisplay
+    }
+
     let logsStore = LogsStore()
     var errorLogs: [AppErrorLogEntry] {
         get { self.logsStore.errorLogs }
@@ -339,11 +351,11 @@ final class AppViewModel: ObservableObject {
     }
 
     var isModeSwitchEnabled: Bool {
-        (self.isRemoteTarget || self.coreRepository.isRunning) && self.apiStatus == .healthy
+        self.isControllerAccessEnabled && (self.isRemoteTarget || self.coreRepository.isRunning) && self.apiStatus == .healthy
     }
 
     var isTunToggleEnabled: Bool {
-        (self.isRemoteTarget || self.isRuntimeRunning) && !self.isCoreActionProcessing && !self.isTunSyncing
+        self.isControllerAccessEnabled && (self.isRemoteTarget || self.isRuntimeRunning) && !self.isCoreActionProcessing && !self.isTunSyncing
     }
 
     var autoStartCoreEnabled: Bool {
@@ -478,6 +490,7 @@ final class AppViewModel: ObservableObject {
     var ssidStrategyLastLogFingerprint: String?
     var pendingSSIDBindingConfigFileName: String?
     var ssidStrategyApplyTask: Task<Void, Never>?
+    var activatedTabRefreshTask: Task<Void, Never>?
     var remoteConfigAutoUpdateTask: Task<Void, Never>?
     var remoteConfigMenuRefreshTask: Task<Void, Never>?
     var externalControllerWarningKeys: Set<String> = []
@@ -521,6 +534,7 @@ final class AppViewModel: ObservableObject {
         self.uiLanguage = loadPersistedUILanguage()
         self.appearanceMode = loadPersistedAppearanceMode()
         applyAppAppearance()
+        _ = self.prepareLocalControllerCredentialsForLaunch()
         self.trafficStore.viewModel = self
         self.proxyStore.viewModel = self
         self.logsStore.viewModel = self

@@ -15,7 +15,8 @@ struct SystemFeedbackState: Equatable {
 @MainActor
 enum SystemTabViewModel {
     static func maintenanceActionEnabled(session: AppViewModel) -> Bool {
-        session.isRemoteTarget || session.coreRepository.isRunning || session.statusText.lowercased() == "running"
+        session.isControllerAccessEnabled
+            && (session.isRemoteTarget || session.coreRepository.isRunning || session.statusText.lowercased() == "running")
     }
 
     static func feedbackState(session: AppViewModel) -> SystemFeedbackState? {

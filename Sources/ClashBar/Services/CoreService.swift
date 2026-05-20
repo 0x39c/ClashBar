@@ -14,11 +14,11 @@ protocol MihomoControlling: AnyObject, Sendable {
     var detectedBinaryPath: String? { get }
     func validateConfigAsync(configPath: String) async throws
     @discardableResult
-    func startAsync(configPath: String, controller: String) async throws -> CoreLifecycleStatus
+    func startAsync(configPath: String, controller: String?, secret: String?) async throws -> CoreLifecycleStatus
     func stop()
     func stopAsync() async
     @discardableResult
-    func restartAsync(configPath: String, controller: String) async throws -> CoreLifecycleStatus
+    func restartAsync(configPath: String, controller: String?, secret: String?) async throws -> CoreLifecycleStatus
 }
 
 // MARK: -
@@ -224,7 +224,7 @@ final class MihomoProcessManager: MihomoControlling, @unchecked Sendable {
     }
 
     @discardableResult
-    func start(configPath: String, controller: String) throws -> CoreLifecycleStatus {
+    func start(configPath: String, controller: String?, secret: String?) throws -> CoreLifecycleStatus {
         if let runningPid = lock.withLock({ process?.isRunning == true ? process?.processIdentifier : nil }) {
             return .running(pid: runningPid)
         }
@@ -243,7 +243,13 @@ final class MihomoProcessManager: MihomoControlling, @unchecked Sendable {
 
         // `-d` pins mihomo runtime home directory to ClashBar working root.
         // This prevents fallback to ~/.config/mihomo for provider/cache updates.
-        let args = ["-d", workingDirectoryURL.path, "-f", configPath, "-ext-ctl", controller]
+        var args = ["-d", workingDirectoryURL.path, "-f", configPath]
+        if let controller {
+            args.append(contentsOf: ["-ext-ctl", controller])
+        }
+        if let secret, !secret.isEmpty {
+            args.append(contentsOf: ["-secret", secret])
+        }
         proc.arguments = args
 
         let stdout = Pipe()
@@ -270,7 +276,7 @@ final class MihomoProcessManager: MihomoControlling, @unchecked Sendable {
             }
             let startMessage =
                 "[mihomo started] pid=\(proc.processIdentifier) " +
-                "controller=\(controller) " +
+                "controller=\(controller ?? "disabled") " +
                 "binary=\(binary) " +
                 "workdir=\(workingDirectoryURL.path)"
             self.onLog?(startMessage)
@@ -288,9 +294,9 @@ final class MihomoProcessManager: MihomoControlling, @unchecked Sendable {
     }
 
     @discardableResult
-    func startAsync(configPath: String, controller: String) async throws -> CoreLifecycleStatus {
+    func startAsync(configPath: String, controller: String?, secret: String?) async throws -> CoreLifecycleStatus {
         try await self.runBlockingOperation(on: self.lifecycleQueue) {
-            try self.start(configPath: configPath, controller: controller)
+            try self.start(configPath: configPath, controller: controller, secret: secret)
         }
     }
 
@@ -335,15 +341,15 @@ final class MihomoProcessManager: MihomoControlling, @unchecked Sendable {
     }
 
     @discardableResult
-    func restart(configPath: String, controller: String) throws -> CoreLifecycleStatus {
+    func restart(configPath: String, controller: String?, secret: String?) throws -> CoreLifecycleStatus {
         self.stop()
-        return try self.start(configPath: configPath, controller: controller)
+        return try self.start(configPath: configPath, controller: controller, secret: secret)
     }
 
     @discardableResult
-    func restartAsync(configPath: String, controller: String) async throws -> CoreLifecycleStatus {
+    func restartAsync(configPath: String, controller: String?, secret: String?) async throws -> CoreLifecycleStatus {
         try await self.runBlockingOperation(on: self.lifecycleQueue) {
-            try self.restart(configPath: configPath, controller: controller)
+            try self.restart(configPath: configPath, controller: controller, secret: secret)
         }
     }
 
@@ -696,8 +702,8 @@ final class DefaultCoreRepository: CoreRepository {
     }
 
     @discardableResult
-    func start(configPath: String, controller: String) async throws -> CoreLifecycleStatus {
-        try await self.processManager.startAsync(configPath: configPath, controller: controller)
+    func start(configPath: String, controller: String?, secret: String?) async throws -> CoreLifecycleStatus {
+        try await self.processManager.startAsync(configPath: configPath, controller: controller, secret: secret)
     }
 
     func stop() async {
@@ -709,7 +715,7 @@ final class DefaultCoreRepository: CoreRepository {
     }
 
     @discardableResult
-    func restart(configPath: String, controller: String) async throws -> CoreLifecycleStatus {
-        try await self.processManager.restartAsync(configPath: configPath, controller: controller)
+    func restart(configPath: String, controller: String?, secret: String?) async throws -> CoreLifecycleStatus {
+        try await self.processManager.restartAsync(configPath: configPath, controller: controller, secret: secret)
     }
 }

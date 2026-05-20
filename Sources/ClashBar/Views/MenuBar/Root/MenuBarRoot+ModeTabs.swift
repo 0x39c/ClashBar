@@ -80,7 +80,7 @@ extension MenuBarRootView {
     var machineSwitcherSubtitle: String {
         switch remoteMachineStore.activeTarget {
         case .local:
-            appViewModel.externalControllerDisplay
+            appViewModel.controllerDisplayText
         case let .remote(machine):
             machine.displayAddress
         }

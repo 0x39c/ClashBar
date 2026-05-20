@@ -21,17 +21,10 @@ extension AppViewModel {
         switch target {
         case .local:
             self.appendLog(level: "info", message: self.tr("log.remote.switched_to_local"))
-            if let configPath = await self.resolveSelectedConfigPath() {
-                self.applyExternalControllerFromSelectedConfigFile(configPath: configPath)
-            } else {
-                let fallback = "127.0.0.1:9090"
-                self.controller = fallback
-                self.controllerSecret = nil
-                self.externalControllerDisplay = fallback
-                self.localExternalControllerDisplay = fallback
-                self.applyExternalUIConfiguration(hasURL: false, name: nil)
-                self.ensureAPIClient()
-            }
+            self.controller = self.localExternalControllerDisplay
+            self.controllerSecret = self.localControllerSecret
+            self.externalControllerDisplay = self.localExternalControllerDisplay
+            self.apiClient = nil
 
             if let snapshot = self.loadPersistedEditableSettingsSnapshot() {
                 self.applyEditableSettingsSnapshotToUI(snapshot)
@@ -39,11 +32,16 @@ extension AppViewModel {
                 self.pendingAppLaunchOverlaySettings = snapshot
             }
             self.lastSyncedEditableSettings = nil
+            if !self.isControllerAccessEnabled {
+                self.apiStatus = .unknown
+            }
 
         case let .remote(machine):
             self.appendLog(
                 level: "info",
                 message: self.tr("log.remote.switched_to_remote", machine.name, machine.displayAddress))
+            self.localExternalControllerDisplay = self.controller
+            self.localControllerSecret = self.controllerSecret
             self.controller = machine.controllerAddress
             self.controllerSecret = machine.secret
             self.externalControllerDisplay = machine.displayAddress

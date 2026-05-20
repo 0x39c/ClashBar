@@ -42,6 +42,7 @@ extension AppViewModel {
         successMessage: String,
         syncSystemProxyPort: Bool = true) async -> Bool
     {
+        guard self.isControllerAccessEnabled || self.isRemoteTarget else { return false }
         self.cancelProxyPortsAutoSave()
         settingsFeedbackClearTask?.cancel()
         settingsFeedbackClearTask = nil

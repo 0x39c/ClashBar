@@ -396,6 +396,8 @@ struct SystemTabView: TranslatingView {
                     onSelect: { level in
                         Task { await self.appViewModel.applyEditableCoreSetting(.logLevel, to: level.rawValue) }
                     }))
+                    .disabled(self.appViewModel.isCoreSettingSyncing || !self.appViewModel.isControllerAccessEnabled)
+                    .opacity((self.appViewModel.isCoreSettingSyncing || !self.appViewModel.isControllerAccessEnabled) ? 0.62 : 1)
                 Button {
                     self.isExceptionsExpanded.toggle()
                 } label: {
@@ -500,7 +502,7 @@ struct SystemTabView: TranslatingView {
                         item.title,
                         symbol: item.symbol,
                         isOn: item.isOn,
-                        isDisabled: self.appViewModel.isCoreSettingSyncing)
+                        isDisabled: self.appViewModel.isCoreSettingSyncing || !self.appViewModel.isControllerAccessEnabled)
                 }
             }
 
@@ -518,6 +520,8 @@ struct SystemTabView: TranslatingView {
                     }
                 }
                 .menuRowPadding(vertical: T.space4)
+                .disabled(!self.appViewModel.isControllerAccessEnabled)
+                .opacity(self.appViewModel.isControllerAccessEnabled ? 1 : 0.62)
             }
 
             VStack(spacing: 0) {

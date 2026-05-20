@@ -215,8 +215,8 @@ struct MenuBarHeaderView: TranslatingView {
         .buttonStyle(.plain)
         .help("Open WebUI")
         .accessibilityLabel("Open WebUI")
-        .disabled(self.isSwitchingMachine)
-        .opacity(self.isSwitchingMachine ? 0.6 : 1)
+        .disabled(self.isSwitchingMachine || (!self.appViewModel.isRemoteTarget && !self.appViewModel.isControllerAccessEnabled))
+        .opacity((self.isSwitchingMachine || (!self.appViewModel.isRemoteTarget && !self.appViewModel.isControllerAccessEnabled)) ? 0.6 : 1)
     }
 
     func headerPopoverSection(_ title: String) -> some View {
@@ -236,7 +236,7 @@ struct MenuBarHeaderView: TranslatingView {
     }
 
     var headerConnectionDisplayText: String {
-        self.appViewModel.externalControllerDisplay
+        self.appViewModel.controllerDisplayText
     }
 
     var headerConnectionStatusTint: Color {

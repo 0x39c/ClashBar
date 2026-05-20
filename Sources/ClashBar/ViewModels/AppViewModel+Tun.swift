@@ -14,6 +14,7 @@ enum TunModeError: LocalizedError {
 @MainActor
 extension AppViewModel {
     func toggleTunMode(_ enabled: Bool) async {
+        guard self.isControllerAccessEnabled || self.isRemoteTarget else { return }
         guard !isTunSyncing else { return }
         guard enabled != isTunEnabled else { return }
 
@@ -65,6 +66,7 @@ extension AppViewModel {
     }
 
     func validateTunPermissionsOnStartup() async {
+        guard self.isControllerAccessEnabled || self.isRemoteTarget else { return }
         guard isTunEnabled else { return }
         do {
             try await self.ensureTunPermissions(requestIfMissing: false)
@@ -142,6 +144,7 @@ extension AppViewModel {
     }
 
     func verifyTunAfterOverlayIfNeeded(overlay: EditableSettingsSnapshot) async {
+        guard self.isControllerAccessEnabled || self.isRemoteTarget else { return }
         guard overlay.tunEnabled, isRuntimeRunning else { return }
         guard pendingCoreFeatureRecoveryState == nil else { return }
 
@@ -164,6 +167,7 @@ extension AppViewModel {
     }
 
     func applyTunRuntimeChange(enabled: Bool) async throws {
+        guard self.isControllerAccessEnabled || self.isRemoteTarget else { return }
         guard self.isRemoteTarget || self.isRuntimeRunning else { return }
         try await self.patchTunConfig(enable: enabled)
         try await self.verifyTunRuntimeState(expectedEnabled: enabled)
@@ -178,6 +182,7 @@ extension AppViewModel {
     }
 
     func patchTunConfig(enable: Bool) async throws {
+        guard self.isControllerAccessEnabled || self.isRemoteTarget else { return }
         let client = try clientOrThrow()
         var tunBody: [String: JSONValue] = ["enable": .bool(enable)]
 
@@ -193,6 +198,7 @@ extension AppViewModel {
     }
 
     func ensureTunMixedStackOnStartupIfNeeded() async {
+        guard self.isControllerAccessEnabled || self.isRemoteTarget else { return }
         guard self.isRuntimeRunning else { return }
 
         do {

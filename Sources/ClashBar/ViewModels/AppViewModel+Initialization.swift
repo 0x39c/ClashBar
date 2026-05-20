@@ -68,11 +68,6 @@ extension AppViewModel {
         self.pruneSSIDStrategyRulesIfNeeded()
         // Always start in local mode. Remote target is session-level only.
         self.remoteMachineStore.resetActiveTarget()
-        if let configPath = self.configRepository.selectedConfig?.path {
-            _ = self.applyExternalControllerFromSelectedConfigFile(configPath: configPath)
-        } else {
-            self.refreshControllerUIURL()
-        }
         if let persisted = loadPersistedEditableSettingsSnapshot() {
             applyEditableSettingsSnapshotToUI(persisted)
             self.preserveLocalSettingsOnNextSync = true
