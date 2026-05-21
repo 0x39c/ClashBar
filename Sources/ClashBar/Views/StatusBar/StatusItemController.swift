@@ -10,12 +10,24 @@ private struct StatusItemRenderKey: Equatable {
 }
 
 private final class FloatingPanel: NSPanel {
+    var onMove: ((NSPoint) -> Void)?
+
     override var canBecomeKey: Bool {
         true
     }
 
     override var canBecomeMain: Bool {
         true
+    }
+
+    override func setFrameOrigin(_ point: NSPoint) {
+        super.setFrameOrigin(point)
+        self.onMove?(point)
+    }
+
+    override func setFrame(_ frameRect: NSRect, display flag: Bool, animate animateFlag: Bool) {
+        super.setFrame(frameRect, display: flag, animate: animateFlag)
+        self.onMove?(frame.origin)
     }
 }
 
@@ -230,6 +242,8 @@ final class StatusItemController: NSObject {
     private var globalEventMonitor: Any?
     private var screenParametersObserver: Any?
     private var lockedPanelOriginX: CGFloat?
+    private var pinnedPanelOrigin: NSPoint?
+    private var isApplyingProgrammaticPanelFrame = false
     private var popoverHostingController: NSHostingController<StatusItemPopoverRootView>?
     private var bannerHostingController: NSHostingController<StatusItemBannerRootView>?
     private var panelStabilizationTask: Task<Void, Never>?
@@ -270,6 +284,11 @@ final class StatusItemController: NSObject {
         super.init()
 
         self.configurePanel()
+        self.panel.onMove = { [weak self] origin in
+            guard let self else { return }
+            guard self.appViewModel.isPinned, !self.isApplyingProgrammaticPanelFrame else { return }
+            self.pinnedPanelOrigin = origin
+        }
         self.configureBannerPanel()
         self.configureStatusItem()
         self.bindSession()
@@ -314,10 +333,18 @@ final class StatusItemController: NSObject {
         self.applyPopoverSize(
             preferredHeight: self.popoverLayoutModel.resolvedPanelHeight,
             preserveHorizontalPosition: false)
-        self.placePanelRelativeToStatusButton(button, preserveHorizontalPosition: false)
+        if self.appViewModel.isPinned, let pinnedPanelOrigin {
+            self.setPanelFrameOrigin(pinnedPanelOrigin)
+        } else {
+            self.placePanelRelativeToStatusButton(button, preserveHorizontalPosition: false)
+        }
         NSApp.activate(ignoringOtherApps: true)
         self.panel.makeKeyAndOrderFront(nil)
-        self.placePanelRelativeToStatusButton(button, preserveHorizontalPosition: true)
+        if self.appViewModel.isPinned, let pinnedPanelOrigin {
+            self.setPanelFrameOrigin(pinnedPanelOrigin)
+        } else {
+            self.placePanelRelativeToStatusButton(button, preserveHorizontalPosition: true)
+        }
         self.suppressPanelScrollIndicators()
         self.schedulePanelStabilizationPasses(for: button)
         self.startGlobalMonitor()
@@ -328,6 +355,9 @@ final class StatusItemController: NSObject {
     private func closePopover(_ sender: Any?) {
         self.panel.orderOut(sender)
         self.lockedPanelOriginX = nil
+        if !self.appViewModel.isPinned {
+            self.pinnedPanelOrigin = nil
+        }
         self.panelStabilizationTask?.cancel()
         self.panelStabilizationTask = nil
         self.stopGlobalMonitor()
@@ -343,6 +373,7 @@ final class StatusItemController: NSObject {
         self.panel.acceptsMouseMovedEvents = true
         self.panel.becomesKeyOnlyIfNeeded = false
         self.panel.hidesOnDeactivate = false
+        self.panel.isMovableByWindowBackground = false
         self.panel.level = .statusBar
         self.panel.collectionBehavior = [.transient, .moveToActiveSpace, .ignoresCycle]
         self.panel.contentViewController = nil
@@ -417,12 +448,18 @@ final class StatusItemController: NSObject {
     }
 
     private func handlePinStateChanged(isPinned: Bool) {
+        self.panel.isMovableByWindowBackground = isPinned
         if isPinned {
+            self.pinnedPanelOrigin = self.panel.isVisible ? self.panel.frame.origin : self.pinnedPanelOrigin
             self.panel.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle]
             self.panel.hidesOnDeactivate = false
         } else {
+            self.pinnedPanelOrigin = nil
             self.panel.collectionBehavior = [.transient, .moveToActiveSpace, .ignoresCycle]
             self.panel.hidesOnDeactivate = false
+            if self.panel.isVisible {
+                self.placePanelRelativeToStatusButton(self.statusItem.button, preserveHorizontalPosition: false)
+            }
         }
     }
 
@@ -601,21 +638,20 @@ final class StatusItemController: NSObject {
         let heightChanged = abs(panel.frame.height - targetSize.height) > 0.5
         guard widthChanged || heightChanged else { return }
 
-        if self.panel.isVisible,
-           let origin = resolvedPanelOrigin(
-               for: statusItem.button,
-               panelSize: targetSize,
-               preserveHorizontalPosition: preserveHorizontalPosition)
-        {
+        if self.panel.isVisible {
+            let origin = self.resolvedPanelOrigin(
+                for: statusItem.button,
+                panelSize: targetSize,
+                preserveHorizontalPosition: preserveHorizontalPosition) ?? self.panel.frame.origin
             let frame = NSRect(origin: origin, size: targetSize)
-            self.panel.setFrame(frame, display: true, animate: false)
+            self.setPanelFrame(frame)
             self.suppressPanelScrollIndicators()
             return
         }
 
         var newFrame = self.panel.frame
         newFrame.size = targetSize
-        self.panel.setFrame(newFrame, display: true, animate: false)
+        self.setPanelFrame(newFrame)
         self.suppressPanelScrollIndicators()
     }
 
@@ -633,7 +669,7 @@ final class StatusItemController: NSObject {
                     return
                 }
 
-                if pass < 3 {
+                if pass < 3, !self.appViewModel.isPinned {
                     self.refreshPopoverMaximumHeight()
                     self.placePanelRelativeToStatusButton(button, preserveHorizontalPosition: true)
                 }
@@ -655,7 +691,19 @@ final class StatusItemController: NSObject {
         else {
             return
         }
+        self.setPanelFrameOrigin(origin)
+    }
+
+    private func setPanelFrameOrigin(_ origin: NSPoint) {
+        self.isApplyingProgrammaticPanelFrame = true
         self.panel.setFrameOrigin(origin)
+        self.isApplyingProgrammaticPanelFrame = false
+    }
+
+    private func setPanelFrame(_ frame: NSRect) {
+        self.isApplyingProgrammaticPanelFrame = true
+        self.panel.setFrame(frame, display: true, animate: false)
+        self.isApplyingProgrammaticPanelFrame = false
     }
 
     private func resolvedPanelOrigin(
@@ -663,6 +711,10 @@ final class StatusItemController: NSObject {
         panelSize: NSSize,
         preserveHorizontalPosition: Bool) -> NSPoint?
     {
+        if self.appViewModel.isPinned, let pinnedPanelOrigin {
+            return pinnedPanelOrigin
+        }
+
         guard let anchorContext = self.resolvedStatusItemAnchorContext(for: button) else { return nil }
 
         let placement = anchorContext.menuBarDropdownPlacement(

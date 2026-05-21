@@ -28,8 +28,8 @@ final class StatusItemContentView: NSView {
     private var currentDisplay: MenuBarDisplay?
     private var cachedUpLine: String = ""
     private var cachedDownLine: String = ""
-    private lazy var runBrandStatusIconImage: NSImage? = Self.makeGlyphStatusIconImage(
-        glyph: "", size: brandIconRenderSize)
+    private lazy var runBrandStatusIconImage: NSImage? = Self.makeBrandStatusIconImage(
+        source: BrandIcon.runProxyImage, size: brandIconRenderSize)
     private lazy var sleepBrandStatusIconImage: NSImage? = Self.makeBrandStatusIconImage(
         source: BrandIcon.sleepImage, size: brandIconRenderSize)
     private lazy var globalBrandStatusIconImage: NSImage? = Self.makeGlyphStatusIconImage(
