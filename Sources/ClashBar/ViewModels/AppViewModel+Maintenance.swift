@@ -194,20 +194,5 @@ extension AppViewModel {
     }
 
     func refreshLatestAppRelease() async {
-        guard !self.isLatestAppReleaseCheckInFlight else { return }
-
-        self.isLatestAppReleaseCheckInFlight = true
-        defer {
-            self.isLatestAppReleaseCheckInFlight = false
-        }
-
-        do {
-            let release = try await AppReleaseService.fetchLatestRelease(currentVersion: self.currentAppVersionText)
-            guard !Task.isCancelled else { return }
-            guard self.latestAppReleaseInfo != release else { return }
-            self.latestAppReleaseInfo = release
-        } catch {
-            guard !Task.isCancelled else { return }
-        }
     }
 }

@@ -385,6 +385,35 @@ extension AppViewModel {
         self.proxyGroups = presentation.groups
         self.proxyHistoryLatestDelay = presentation.history
         self.proxyNodeTypes = presentation.nodeTypes
+        self.autoFixGroupsPointingToHiddenNodes(presentation.groups)
+    }
+
+    private func autoFixGroupsPointingToHiddenNodes(_ groups: [ProxyGroup]) {
+        let hiddenNames: Set<String> = Set(groups.compactMap { group in
+            if group.all.isEmpty { return group.name }
+            if group.all.count == 1,
+               group.all[0].caseInsensitiveCompare("COMPATIBLE") == .orderedSame
+            { return group.name }
+            return nil
+        })
+        guard !hiddenNames.isEmpty else { return }
+
+        for group in groups {
+            guard let now = group.now, hiddenNames.contains(now) else { continue }
+            let typeLower = group.type?.lowercased() ?? ""
+            guard typeLower == "selector" else { continue }
+            guard !autoFixInFlight.contains(group.name) else { continue }
+            let candidates = group.all.filter { !hiddenNames.contains($0) }
+            guard let fallback = candidates.first else { continue }
+            self.autoFixInFlight.insert(group.name)
+            self.appendLog(
+                level: "info",
+                message: "Auto-switch \(group.name): \(now) → \(fallback) (hidden node)")
+            Task { [weak self] in
+                await self?.switchProxy(group: group.name, target: fallback)
+                self?.autoFixInFlight.remove(group.name)
+            }
+        }
     }
 
     func normalizedHealthcheckURL(_ value: String?) -> String? {

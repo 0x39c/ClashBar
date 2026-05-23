@@ -499,6 +499,7 @@ final class AppViewModel: ObservableObject {
     var remoteConfigAutoUpdateTask: Task<Void, Never>?
     var remoteConfigMenuRefreshTask: Task<Void, Never>?
     var externalControllerWarningKeys: Set<String> = []
+    var autoFixInFlight: Set<String> = []
     let streamJSONDecoder = JSONDecoder()
     let initialNoCoreSetupGuideShownKey = "clashbar.core.install.guide.shown.v1"
     let bundlesMihomoCore: Bool

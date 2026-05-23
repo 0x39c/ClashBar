@@ -4,8 +4,23 @@ import SwiftUI
 private typealias T = MenuBarLayoutTokens
 
 extension ProxyTabView {
+    private var visibleProxyProviderNames: [String] {
+        let providers = appViewModel.sortedProxyProviderNames
+        guard !providers.isEmpty else { return [] }
+        if !isProxyProvidersCollapsed {
+            return providers
+        }
+        if let selected = appViewModel.selectedProxyProviderName,
+           providers.contains(selected)
+        {
+            return [selected]
+        }
+        return []
+    }
+
     var proxyProvidersSection: some View {
         let providers = appViewModel.sortedProxyProviderNames
+        let visible = self.visibleProxyProviderNames
 
         return VStack(alignment: .leading, spacing: T.space6) {
             self.nodesSectionHeader(
@@ -14,20 +29,10 @@ extension ProxyTabView {
                 count: "\(providers.count)")
             {
                 HStack(spacing: T.space6) {
-                    let collapseLabel = tr(isProxyProvidersCollapsed ? "ui.action.expand" : "ui.action.collapse")
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.16)) {
-                            isProxyProvidersCollapsed.toggle()
-                        }
-                    } label: {
-                        Image(systemName: isProxyProvidersCollapsed ? "chevron.right" : "chevron.down")
-                            .font(.app(size: T.FontSize.caption, weight: .semibold))
-                            .foregroundStyle(nativeSecondaryLabel)
-                            .frame(width: T.rowLeadingIcon, height: T.rowLeadingIcon)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(collapseLabel)
-                    .help(collapseLabel)
+                    Image(systemName: isProxyProvidersCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.app(size: T.FontSize.caption, weight: .semibold))
+                        .foregroundStyle(nativeSecondaryLabel)
+                        .frame(width: T.rowLeadingIcon, height: T.rowLeadingIcon)
 
                     self.compactTopIcon(
                         "plus",
@@ -43,15 +48,23 @@ extension ProxyTabView {
                     .opacity(self.appViewModel.canBindProviderToSelectedLocalDefaultConfig ? 1 : 0.72)
                 }
             }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                    isProxyProvidersCollapsed.toggle()
+                }
+            }
 
             if providers.isEmpty {
                 emptyCard(tr("ui.empty.proxy_providers"))
-            } else if !isProxyProvidersCollapsed {
+            } else if !visible.isEmpty {
                 VStack(spacing: T.space2) {
-                    ForEach(providers, id: \.self) { name in
+                    ForEach(visible, id: \.self) { name in
                         self.proxyProviderRow(name: name, detail: appViewModel.proxyProvidersDetail[name])
+                            .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
                     }
                 }
+                .clipped()
             }
         }
     }
@@ -310,7 +323,7 @@ extension ProxyTabView {
             group: group.name,
             node: currentNode,
             fallbackToGroupHistory: true)
-        let nodeCount = group.all.count
+        let nodeCount = group.all.filter { !rootViewModel.hiddenGroupNames.contains($0) }.count
         let iconURL = self.proxyGroupIconURL(group)
         let hasLeadingIcon = iconURL != nil
         let rowHorizontalPadding = T.space4
@@ -555,11 +568,13 @@ extension ProxyTabView {
     }
 
     func sortedGroupNodes(_ group: ProxyGroup) -> [String] {
-        self.sortedNodes(names: group.all, latencyForNode: { appViewModel.delayValue(group: group.name, node: $0) })
+        let filtered = group.all.filter { !rootViewModel.hiddenGroupNames.contains($0) }
+        return self.sortedNodes(names: filtered, latencyForNode: { appViewModel.delayValue(group: group.name, node: $0) })
     }
 
     func defaultGroupNodes(_ group: ProxyGroup) -> [String] {
-        let unique = self.orderedUniqueNames(group.all)
+        let filtered = group.all.filter { !rootViewModel.hiddenGroupNames.contains($0) }
+        let unique = self.orderedUniqueNames(filtered)
         guard appViewModel.hideUnavailableProxyNodes else { return unique }
         return unique.filter { self.isProxyNodeAvailable(appViewModel.delayValue(group: group.name, node: $0)) }
     }

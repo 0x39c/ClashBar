@@ -481,14 +481,15 @@ extension AppViewModel {
             })
     }
 
-    func copyAllLogs() {
+    func copyAllLogs(filtered: [AppErrorLogEntry]? = nil) {
         self.flushPendingMihomoLogsIfNeeded()
-        let content = errorLogs
+        let logs = filtered ?? errorLogs
+        let content = logs
             .map(self.formattedLogEntry)
             .joined(separator: "\n")
 
         self.copyTextToPasteboard(content)
-        appendLog(level: "info", message: tr("log.logs.copied_all", errorLogs.count))
+        appendLog(level: "info", message: tr("log.logs.copied_all", logs.count))
     }
 
     private func runConnectionMutation(actionName: String, operation: @escaping () async throws -> Void) async {

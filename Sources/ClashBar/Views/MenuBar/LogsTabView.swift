@@ -119,7 +119,7 @@ struct LogsTabView: TranslatingView {
                 label: self.tr("ui.action.copy_all_logs"),
                 toneOverride: nativeSecondaryLabel)
             {
-                self.appViewModel.copyAllLogs()
+                self.appViewModel.copyAllLogs(filtered: self.viewModel.visibleLogs)
             }
             .help(self.tr("ui.action.copy_all_logs"))
             .disabled(self.appViewModel.errorLogs.isEmpty)

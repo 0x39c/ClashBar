@@ -41,8 +41,7 @@ extension AppViewModel {
            !self.isCoreActionProcessing
         {
             self.pendingConfigChangeRestart = false
-            self.appendLog(level: "info", message: self.tr("log.config.changed_restart"))
-            await self.restartCore(trigger: .configSwitch)
+            await self.reloadConfigAfterFileChange()
             return
         }
 
@@ -81,8 +80,19 @@ extension AppViewModel {
             return
         }
 
+        await self.reloadConfigAfterFileChange()
+    }
+
+    private func reloadConfigAfterFileChange() async {
         self.appendLog(level: "info", message: self.tr("log.config.changed_restart"))
-        await self.restartCore(trigger: .configSwitch)
+        proxyGroups = []
+        groupLatencies = [:]
+        proxyNodeTypes = [:]
+        groupLatencyLoading = []
+        proxyLatencyTesting = []
+        cancelProviderRefresh(reason: "config switch requested")
+        await self.reloadConfig()
+        await self.refreshFromAPI(includeSlowCalls: true)
     }
 
     private func currentConfigFileSignatureSnapshot() -> [String: String] {
