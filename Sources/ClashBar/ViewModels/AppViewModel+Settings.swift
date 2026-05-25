@@ -82,6 +82,7 @@ extension AppViewModel {
         if setting == .logLevel, ConfigLogLevel(rawValue: normalized) == nil {
             settingsErrorMessage = tr("app.settings.error.invalid_log_level", value)
             settingsSavedMessage = nil
+            await self.reconcileEditableSettingsWithRuntimeConfig()
             return
         }
 
@@ -92,22 +93,37 @@ extension AppViewModel {
         await toggleTunMode(value)
     }
 
-    func applyProxyPorts(autoSaved: Bool = false) async {
+    func applyProxyPorts(autoSaved: Bool = false, keys: Set<String>? = nil) async {
+        let fields: [SettingsPortField]
+        if let keys {
+            fields = self.proxyPortFields.filter { keys.contains($0.key) }
+        } else {
+            fields = self.proxyPortFields
+        }
+        guard !fields.isEmpty else { return }
         guard let body = self.validatedPortPatchBody(
-            fields: self.proxyPortFields,
+            fields: fields,
             errorMessageKey: "app.settings.error.port_range",
             skipEmptyValues: false)
-        else { return }
+        else {
+            await self.reconcileEditableSettingsWithRuntimeConfig()
+            return
+        }
 
         let syncingKey = autoSaved ? "ports-auto" : "ports"
         let successMessage = autoSaved ? tr("app.settings.saved.ports_auto") : tr("app.settings.saved.ports")
-        await self.patchConfigBody(body, syncingKey: syncingKey, successMessage: successMessage)
+        await self.patchConfigBody(
+            body,
+            syncingKey: syncingKey,
+            successMessage: successMessage,
+            explicitKeysToRecord: Set(body.keys))
     }
 
-    func scheduleProxyPortsAutoSaveIfNeeded() {
+    func scheduleProxyPortsAutoSaveIfNeeded(changedKey: String) {
         guard !suppressSettingsPersistence else { return }
         guard settingsSyncingKey == nil else { return }
 
+        pendingProxyPortAutoSaveKeys.insert(changedKey)
         proxyPortsAutoSaveTask?.cancel()
         proxyPortsAutoSaveTask = Task { [weak self] in
             do {
@@ -118,20 +134,23 @@ extension AppViewModel {
 
             guard let self else { return }
             if Task.isCancelled { return }
+            let keys = self.pendingProxyPortAutoSaveKeys
+            self.pendingProxyPortAutoSaveKeys = []
             // Clear the tracking reference before saving so patchConfigBody()
             // will not cancel the currently running autosave task itself.
             self.proxyPortsAutoSaveTask = nil
-            await self.applyProxyPorts(autoSaved: true)
+            await self.applyProxyPorts(autoSaved: true, keys: keys)
         }
     }
 
     func cancelProxyPortsAutoSave() {
         proxyPortsAutoSaveTask?.cancel()
         proxyPortsAutoSaveTask = nil
+        pendingProxyPortAutoSaveKeys = []
     }
 
     func syncEditableSettings(from config: ConfigSnapshot) {
-        let incoming = EditableSettingsSnapshot(config: config)
+        let incoming = EditableSettingsSnapshot(config: config, explicitKeys: explicitEditableSettingKeys)
 
         if preserveLocalSettingsOnNextSync {
             preserveLocalSettingsOnNextSync = false
@@ -187,7 +206,8 @@ extension AppViewModel {
             socksPort: settingsSocksPort,
             mixedPort: settingsMixedPort,
             redirPort: settingsRedirPort,
-            tproxyPort: settingsTProxyPort)
+            tproxyPort: settingsTProxyPort,
+            explicitKeys: explicitEditableSettingKeys)
     }
 
     func applyPendingConfigSwitchSettingsOverlayIfNeeded() async {
@@ -198,7 +218,7 @@ extension AppViewModel {
             overlay,
             syncingKey: "config-switch-overlay",
             successMessage: tr("app.settings.overlay_success"),
-            includeMode: false)
+            includeMode: true)
     }
 
     func applyPendingAppLaunchSettingsOverlayIfNeeded(syncSystemProxyPort: Bool = true) async {
@@ -211,7 +231,7 @@ extension AppViewModel {
             syncingKey: "app-launch-overlay",
             successMessage: "",
             syncSystemProxyPort: syncSystemProxyPort,
-            includeMode: false)
+            includeMode: true)
     }
 
     func syncEditableSettingsOverlayForCoreBootstrap(
@@ -244,44 +264,63 @@ extension AppViewModel {
         syncSystemProxyPort: Bool = true,
         includeMode: Bool = true) async -> Bool
     {
+        let explicitKeys = overlay.explicitKeys
+        guard !explicitKeys.isEmpty else { return true }
+
         let fallback = lastSyncedEditableSettings
-        let resolvedLogLevel = overlay.logLevel.trimmed.isEmpty
-            ? (fallback?.logLevel ?? ConfigLogLevel.info.rawValue)
-            : overlay.logLevel
+        var body: [String: ConfigPatchValue] = [:]
 
-        guard ConfigLogLevel(rawValue: resolvedLogLevel) != nil else {
-            settingsErrorMessage = tr("app.settings.error.overlay_invalid_log_level", resolvedLogLevel)
-            settingsSavedMessage = nil
-            return false
+        if explicitKeys.contains("allow-lan") {
+            body["allow-lan"] = .bool(overlay.allowLan)
         }
-
-        let resolvedPortFields = self.resolveOverlayPortFieldsUseCase.execute(
-            overlay: overlay,
-            fallback: fallback)
-        guard let portBody = validatedPortPatchBody(
-            fields: resolvedPortFields,
-            errorMessageKey: "app.settings.error.overlay_port_range",
-            skipEmptyValues: true)
-        else { return false }
-
-        var body: [String: ConfigPatchValue] = [
-            "allow-lan": .bool(overlay.allowLan),
-            "ipv6": .bool(overlay.ipv6),
-            "tcp-concurrent": .bool(overlay.tcpConcurrent),
-            "log-level": .string(resolvedLogLevel),
-        ]
-        if includeMode {
+        if explicitKeys.contains("ipv6") {
+            body["ipv6"] = .bool(overlay.ipv6)
+        }
+        if explicitKeys.contains("tcp-concurrent") {
+            body["tcp-concurrent"] = .bool(overlay.tcpConcurrent)
+        }
+        if explicitKeys.contains("log-level") {
+            let resolvedLogLevel = overlay.logLevel.trimmed.isEmpty
+                ? (fallback?.logLevel ?? ConfigLogLevel.info.rawValue)
+                : overlay.logLevel
+            guard ConfigLogLevel(rawValue: resolvedLogLevel) != nil else {
+                settingsErrorMessage = tr("app.settings.error.overlay_invalid_log_level", resolvedLogLevel)
+                settingsSavedMessage = nil
+                await self.reconcileEditableSettingsWithRuntimeConfig()
+                return false
+            }
+            body["log-level"] = .string(resolvedLogLevel)
+        }
+        if includeMode, explicitKeys.contains("mode") {
             body["mode"] = .string(overlay.mode.rawValue)
         }
-        let tunBody = await self.tunOverlayPatchBody(enabled: overlay.tunEnabled)
-        body["tun"] = .object(tunBody)
-        if overlay.tunEnabled {
-            body["dns"] = .object(["enable": .bool(true)])
-        }
-        for (key, value) in portBody {
-            body[key] = value
+        if explicitKeys.contains("tun") {
+            let tunBody = await self.tunOverlayPatchBody(enabled: overlay.tunEnabled)
+            body["tun"] = .object(tunBody)
+            if overlay.tunEnabled {
+                body["dns"] = .object(["enable": .bool(true)])
+            }
         }
 
+        let explicitPortFields = self.resolveOverlayPortFieldsUseCase.execute(
+            overlay: overlay,
+            fallback: fallback)
+            .filter { explicitKeys.contains($0.key) }
+        if !explicitPortFields.isEmpty {
+            guard let portBody = validatedPortPatchBody(
+                fields: explicitPortFields,
+                errorMessageKey: "app.settings.error.overlay_port_range",
+                skipEmptyValues: true)
+            else {
+                await self.reconcileEditableSettingsWithRuntimeConfig()
+                return false
+            }
+            for (key, value) in portBody {
+                body[key] = value
+            }
+        }
+
+        guard !body.isEmpty else { return true }
         return await self.patchConfigBody(
             body,
             syncingKey: syncingKey,

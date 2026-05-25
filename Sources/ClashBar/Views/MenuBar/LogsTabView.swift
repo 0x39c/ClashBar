@@ -102,6 +102,7 @@ struct LogsTabView: TranslatingView {
             self.logsSecondaryControlRow
             TextField(self.tr("ui.placeholder.search_logs"), text: self.$viewModel.searchText)
                 .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
                 .font(.app(size: T.FontSize.body, weight: .regular))
                 .foregroundStyle(nativePrimaryLabel)
         }

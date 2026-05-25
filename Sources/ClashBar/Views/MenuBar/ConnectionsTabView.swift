@@ -110,6 +110,7 @@ struct ConnectionsTabView: TranslatingView {
 
             TextField(self.tr("ui.placeholder.filter_connection"), text: self.$viewModel.filterText)
                 .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
                 .font(.app(size: MenuBarLayoutTokens.FontSize.body, weight: .regular))
                 .foregroundStyle(nativePrimaryLabel)
         }

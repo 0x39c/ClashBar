@@ -32,6 +32,9 @@ extension AppViewModel {
             let config = try await fetchRuntimeConfigSnapshot()
             let actualState = config.tunEnabled ?? false
             isTunEnabled = actualState
+            if actualState == enabled {
+                explicitEditableSettingKeys.insert("tun")
+            }
             persistEditableSettingsSnapshot()
 
             if actualState == enabled {

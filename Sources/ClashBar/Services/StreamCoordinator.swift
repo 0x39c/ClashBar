@@ -117,6 +117,7 @@ final class StreamCoordinator {
                 message = try await ws.receive()
             } catch {
                 if Task.isCancelled { return }
+                guard let currentWebSocket = self.streamWebSocketTasks[key], currentWebSocket === ws else { return }
 
                 let errorMessage = error.localizedDescription
                 if self.shouldLogDisconnect(key: key, message: errorMessage) {
@@ -124,6 +125,7 @@ final class StreamCoordinator {
                 }
                 self.streamWebSocketTasks[key]?.cancel(with: .goingAway, reason: nil)
                 self.streamWebSocketTasks[key] = nil
+                self.streamReceiveTasks[key] = nil
 
                 guard self.shouldReconnect() else { return }
                 do {

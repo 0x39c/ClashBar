@@ -8,7 +8,10 @@ extension AppViewModel {
             settingsMixedPort: settingsMixedPort)
     }
 
-    func applyEditableSettingsSnapshotToUI(_ snapshot: EditableSettingsSnapshot) {
+    func applyEditableSettingsSnapshotToUI(
+        _ snapshot: EditableSettingsSnapshot,
+        restoreExplicitKeys: Bool = false)
+    {
         suppressSettingsPersistence = true
         currentMode = snapshot.mode
         settingsAllowLan = snapshot.allowLan
@@ -21,6 +24,9 @@ extension AppViewModel {
         settingsMixedPort = snapshot.mixedPort
         settingsRedirPort = snapshot.redirPort
         settingsTProxyPort = snapshot.tproxyPort
+        if restoreExplicitKeys {
+            explicitEditableSettingKeys = snapshot.explicitKeys
+        }
         suppressSettingsPersistence = false
     }
 
@@ -32,7 +38,8 @@ extension AppViewModel {
         _ = await self.patchConfigBody(
             [key: value],
             syncingKey: key,
-            successMessage: tr("app.settings.saved.single_key", key))
+            successMessage: tr("app.settings.saved.single_key", key),
+            explicitKeysToRecord: [key])
     }
 
     @discardableResult
@@ -40,7 +47,8 @@ extension AppViewModel {
         _ body: [String: ConfigPatchValue],
         syncingKey: String,
         successMessage: String,
-        syncSystemProxyPort: Bool = true) async -> Bool
+        syncSystemProxyPort: Bool = true,
+        explicitKeysToRecord: Set<String> = []) async -> Bool
     {
         guard self.isControllerAccessEnabled || self.isRemoteTarget else { return false }
         self.cancelProxyPortsAutoSave()
@@ -62,6 +70,7 @@ extension AppViewModel {
             appendLog(level: "info", message: "PATCH /configs [\(patchKeysDescription)]")
             try await self.settingsPatchTransport().requestNoResponse(.patchConfigs(body: body.mapValues(\.jsonValue)))
             appendLog(level: "info", message: "PATCH /configs succeeded [\(patchKeysDescription)]")
+            explicitEditableSettingKeys.formUnion(explicitKeysToRecord)
             await refreshFromAPI(includeSlowCalls: false)
             await self.reconcileEditableSettingsWithRuntimeConfig()
             settingsSavedMessage = successMessage
@@ -155,11 +164,11 @@ extension AppViewModel {
     private func seedDeferredEditableSettingsOverlayIfNeeded() {
         guard self.deferredEditableSettingsOverlay == nil else { return }
         if let overlay = self.pendingAppLaunchOverlaySettings {
-            self.deferredEditableSettingsOverlay = (snapshot: overlay, syncingKey: "app-launch-overlay", includeMode: false)
+            self.deferredEditableSettingsOverlay = (snapshot: overlay, syncingKey: "app-launch-overlay", includeMode: true)
             return
         }
         if let overlay = self.pendingConfigSwitchOverlaySettings {
-            self.deferredEditableSettingsOverlay = (snapshot: overlay, syncingKey: "config-switch-overlay", includeMode: false)
+            self.deferredEditableSettingsOverlay = (snapshot: overlay, syncingKey: "config-switch-overlay", includeMode: true)
         }
     }
 
@@ -249,7 +258,7 @@ extension AppViewModel {
     func reconcileEditableSettingsWithRuntimeConfig() async {
         do {
             let config = try await self.fetchRuntimeConfigSnapshot()
-            let incoming = EditableSettingsSnapshot(config: config)
+            let incoming = EditableSettingsSnapshot(config: config, explicitKeys: explicitEditableSettingKeys)
             self.applyEditableSettingsSnapshotToUI(incoming)
             self.lastSyncedEditableSettings = incoming
             self.persistEditableSettingsSnapshot()

@@ -200,6 +200,7 @@ struct EditableSettingsSnapshot: Equatable, Codable {
     let mixedPort: String
     let redirPort: String
     let tproxyPort: String
+    let explicitKeys: Set<String>
 
     private enum CodingKeys: String, CodingKey {
         case mode
@@ -213,9 +214,10 @@ struct EditableSettingsSnapshot: Equatable, Codable {
         case mixedPort
         case redirPort
         case tproxyPort
+        case explicitKeys
     }
 
-    init(config: ConfigSnapshot) {
+    init(config: ConfigSnapshot, explicitKeys: Set<String> = []) {
         self.mode = CoreMode(rawValue: (config.mode ?? "").lowercased()) ?? .rule
         self.allowLan = config.allowLan ?? false
         self.ipv6 = config.ipv6 ?? false
@@ -227,6 +229,7 @@ struct EditableSettingsSnapshot: Equatable, Codable {
         self.mixedPort = config.mixedPort.map(String.init) ?? ""
         self.redirPort = config.redirPort.map(String.init) ?? ""
         self.tproxyPort = config.tproxyPort.map(String.init) ?? ""
+        self.explicitKeys = explicitKeys
     }
 
     init(
@@ -240,7 +243,8 @@ struct EditableSettingsSnapshot: Equatable, Codable {
         socksPort: String,
         mixedPort: String,
         redirPort: String,
-        tproxyPort: String)
+        tproxyPort: String,
+        explicitKeys: Set<String> = [])
     {
         self.mode = mode
         self.allowLan = allowLan
@@ -253,6 +257,7 @@ struct EditableSettingsSnapshot: Equatable, Codable {
         self.mixedPort = mixedPort
         self.redirPort = redirPort
         self.tproxyPort = tproxyPort
+        self.explicitKeys = explicitKeys
     }
 
     init(from decoder: Decoder) throws {
@@ -268,6 +273,7 @@ struct EditableSettingsSnapshot: Equatable, Codable {
         self.mixedPort = try container.decode(String.self, forKey: .mixedPort)
         self.redirPort = try container.decode(String.self, forKey: .redirPort)
         self.tproxyPort = try container.decode(String.self, forKey: .tproxyPort)
+        self.explicitKeys = try container.decodeIfPresent(Set<String>.self, forKey: .explicitKeys) ?? []
     }
 }
 
@@ -284,7 +290,8 @@ extension EditableSettingsSnapshot {
             socksPort: self.socksPort,
             mixedPort: self.mixedPort,
             redirPort: self.redirPort,
-            tproxyPort: self.tproxyPort)
+            tproxyPort: self.tproxyPort,
+            explicitKeys: self.explicitKeys)
     }
 }
 

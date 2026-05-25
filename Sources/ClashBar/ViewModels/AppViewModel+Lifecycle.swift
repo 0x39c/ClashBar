@@ -4,7 +4,6 @@ import Foundation
 @MainActor
 extension AppViewModel {
     private struct CoreBootstrapOptions {
-        let overlaySyncingKey: String
         let refreshProxyGroupsAfterBootstrap: Bool
         let refreshSystemProxyBeforeOverlay: Bool
         let refreshSystemProxyAfterBootstrap: Bool
@@ -28,7 +27,6 @@ extension AppViewModel {
         defer { suppressRuntimeEditableSettingsSync = false }
         var settingsOverlay = currentEditableSettingsSnapshot()
         settingsOverlay = self.overlayApplyingPendingCoreFeatureRecovery(settingsOverlay)
-        preserveLocalSettingsOnNextSync = true
         do {
             guard let configPath = await resolveSelectedConfigPath() else {
                 let message = tr("log.start.no_config")
@@ -63,8 +61,8 @@ extension AppViewModel {
             await self.completeCoreBootstrap(
                 configPath: configPath,
                 settingsOverlay: settingsOverlay,
+                overlaySyncingKey: "app-launch-overlay",
                 options: CoreBootstrapOptions(
-                    overlaySyncingKey: "start-overlay",
                     refreshProxyGroupsAfterBootstrap: false,
                     refreshSystemProxyBeforeOverlay: true,
                     refreshSystemProxyAfterBootstrap: false,
@@ -121,7 +119,6 @@ extension AppViewModel {
         defer { coreActionState = .idle }
         suppressRuntimeEditableSettingsSync = true
         defer { suppressRuntimeEditableSettingsSync = false }
-        preserveLocalSettingsOnNextSync = true
         mihomoInitialConfigurationCompleted = false
         cancelProviderRefresh(reason: "restart requested")
         do {
@@ -136,23 +133,32 @@ extension AppViewModel {
             }
 
             self.cancelPolling()
+            var settingsOverlay = currentEditableSettingsSnapshot()
+            settingsOverlay = self.overlayApplyingPendingCoreFeatureRecovery(settingsOverlay)
+            settingsOverlay = try await prepareTunOverlayForCoreStartup(settingsOverlay)
             let launchController = self.prepareLocalControllerCredentialsForLaunch()
             let recoverySnapshotBeforeRestart = self.currentCoreFeatureRecoverySnapshot()
             await self.prepareCoreFeatureRecoveryBeforeCoreTransition(
                 fallbackRecovery: recoverySnapshotBeforeRestart,
                 transitionKind: .restart,
                 disableRuntimeTunBeforeStop: false)
-            let settingsOverlay = self.overlayApplyingPendingCoreFeatureRecovery(currentEditableSettingsSnapshot())
             _ = try await self.coreRepository.restart(
                 configPath: configPath,
                 controller: launchController,
                 secret: self.controllerSecret)
             self.refreshControllerUIURL()
+            let overlaySyncingKey: String
+            switch trigger {
+            case .configSwitch:
+                overlaySyncingKey = "config-switch-overlay"
+            case .start, .restart:
+                overlaySyncingKey = "app-launch-overlay"
+            }
             await self.completeCoreBootstrap(
                 configPath: configPath,
                 settingsOverlay: settingsOverlay,
+                overlaySyncingKey: overlaySyncingKey,
                 options: CoreBootstrapOptions(
-                    overlaySyncingKey: "restart-overlay",
                     refreshProxyGroupsAfterBootstrap: true,
                     refreshSystemProxyBeforeOverlay: false,
                     refreshSystemProxyAfterBootstrap: true,
@@ -290,8 +296,6 @@ extension AppViewModel {
         guard previousPath != nextPath else { return }
         guard coreRepository.isRunning else { return }
 
-        pendingConfigSwitchOverlaySettings = currentEditableSettingsSnapshot()
-        preserveLocalSettingsOnNextSync = true
         proxyGroups = []
         groupLatencies = [:]
         proxyNodeTypes = [:]
@@ -300,7 +304,6 @@ extension AppViewModel {
         appendLog(level: "info", message: tr("log.config.changed_restart"))
         cancelProviderRefresh(reason: "config switch requested")
         await self.restartCore(trigger: .configSwitch)
-        await applyPendingConfigSwitchSettingsOverlayIfNeeded()
     }
 
     func refreshProxyGroupsAfterRestart() async {
@@ -320,6 +323,7 @@ extension AppViewModel {
     private func completeCoreBootstrap(
         configPath: String,
         settingsOverlay: EditableSettingsSnapshot,
+        overlaySyncingKey: String,
         options: CoreBootstrapOptions) async
     {
         guard self.isControllerAccessEnabled else {
@@ -356,17 +360,17 @@ extension AppViewModel {
         apiStatus = .healthy
         resetTrafficPresentation()
         ensureAPIClient()
+        startPolling()
         await self.waitForMihomoInitialConfigurationComplete()
+        suppressRuntimeEditableSettingsSync = false
+        await refreshFromAPI(includeSlowCalls: true)
         await self.syncEditableSettingsOverlayForCoreBootstrap(
             settingsOverlay,
-            syncingKey: options.overlaySyncingKey)
-        _ = await self.syncDeferredEditableSettingsOverlayUntilApplied()
-        await refreshFromAPI(includeSlowCalls: true)
-        startPolling()
+            syncingKey: overlaySyncingKey,
+            includeMode: true)
 
         await validateTunPermissionsOnStartup()
         await ensureTunMixedStackOnStartupIfNeeded()
-        await self.verifyTunAfterOverlayIfNeeded(overlay: settingsOverlay)
 
         if options.refreshProxyGroupsAfterBootstrap {
             await self.refreshProxyGroupsAfterRestart()
@@ -381,8 +385,6 @@ extension AppViewModel {
         startupErrorMessage = nil
         await self.restoreCoreFeaturesAfterStartupIfNeeded()
         enforceNetworkManagedCorePolicyIfNeeded()
-        await self.switchMode(to: settingsOverlay.mode)
-        suppressRuntimeEditableSettingsSync = false
         await refreshFromAPI(includeSlowCalls: false)
 
         if options.autoTestGroupLatencies {

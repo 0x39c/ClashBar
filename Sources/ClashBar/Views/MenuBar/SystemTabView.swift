@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // swiftlint:disable:next type_name
@@ -16,6 +17,10 @@ private struct SettingsSelectionRowConfiguration<Option: Hashable> {
 struct SystemTabView: TranslatingView {
     @EnvironmentObject var appViewModel: AppViewModel
     @State private var isExceptionsExpanded = false
+    @State private var isProxyPortsExpanded = false
+    @State private var proxyPortDraftValues: [String: String] = [:]
+    @State private var lastFocusedProxyPortKey: String?
+    @FocusState private var focusedProxyPortKey: String?
 
     func settingsCardHeader(_ title: String, symbol: String) -> some View {
         HStack(spacing: T.space6) {
@@ -120,24 +125,52 @@ struct SystemTabView: TranslatingView {
         }
     }
 
-    func settingsPortFieldRow(_ title: String, symbol: String, text: Binding<String>) -> some View {
+    func proxyPortDraftBinding(key: String, text: Binding<String>) -> Binding<String> {
+        Binding(
+            get: { self.proxyPortDraftValues[key] ?? text.wrappedValue },
+            set: { self.proxyPortDraftValues[key] = $0 })
+    }
+
+    func commitProxyPortDraft(key: String, text: Binding<String>) async {
+        guard let draftValue = self.proxyPortDraftValues[key] else { return }
+        let trimmedValue = draftValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let committedValue = trimmedValue.isEmpty ? "0" : trimmedValue
+        guard committedValue != text.wrappedValue else {
+            self.proxyPortDraftValues[key] = nil
+            return
+        }
+
+        text.wrappedValue = committedValue
+        await self.appViewModel.applyProxyPorts(autoSaved: true, keys: [key])
+        self.proxyPortDraftValues[key] = nil
+    }
+
+    func endProxyPortEditing() {
+        focusedProxyPortKey = nil
+        let window = NSApp.keyWindow ?? NSApp.mainWindow
+        window?.makeFirstResponder(window?.contentView)
+    }
+
+    func settingsPortFieldRow(_ title: String, symbol: String, key: String, text: Binding<String>) -> some View {
         HStack(spacing: T.space8) {
             self.settingsRowLabel(symbol: symbol, title: title)
                 .layoutPriority(1)
 
             Spacer(minLength: 0)
 
-            TextField(self.tr("ui.placeholder.port"), text: text)
+            TextField(self.tr("ui.placeholder.port"), text: self.proxyPortDraftBinding(key: key, text: text))
                 .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
                 .font(.app(size: T.FontSize.body, weight: .regular))
                 .foregroundStyle(nativePrimaryLabel)
                 .multilineTextAlignment(.trailing)
                 .frame(width: self.settingsPortFieldWidth, alignment: .trailing)
-                .onChange(of: text.wrappedValue) { _ in
-                    self.appViewModel.scheduleProxyPortsAutoSaveIfNeeded()
-                }
+                .focused(self.$focusedProxyPortKey, equals: key)
                 .onSubmit {
-                    Task { await self.appViewModel.applyProxyPorts(autoSaved: true) }
+                    Task {
+                        await self.commitProxyPortDraft(key: key, text: text)
+                        self.focusedProxyPortKey = nil
+                    }
                 }
         }
     }
@@ -288,13 +321,18 @@ struct SystemTabView: TranslatingView {
 
     var body: some View {
         let isRemote = self.appViewModel.isRemoteTarget
-        let proxyPortFields: [(titleKey: String, symbol: String, text: Binding<String>)] = [
-            ("ui.settings.port.port", "network", $appViewModel.settingsPort),
-            ("ui.settings.port.socks", "wave.3.right", self.$appViewModel.settingsSocksPort),
-            ("ui.settings.port.mixed", "arrow.triangle.merge", self.$appViewModel.settingsMixedPort),
-            ("ui.settings.port.redir", "arrowshape.turn.up.right", self.$appViewModel.settingsRedirPort),
-            ("ui.settings.port.tproxy", "shield.lefthalf.filled", self.$appViewModel.settingsTProxyPort),
+        let proxyPortFields: [(key: String, titleKey: String, symbol: String, text: Binding<String>)] = [
+            ("port", "ui.settings.port.port", "network", $appViewModel.settingsPort),
+            ("socks-port", "ui.settings.port.socks", "wave.3.right", self.$appViewModel.settingsSocksPort),
+            ("mixed-port", "ui.settings.port.mixed", "arrow.triangle.merge", self.$appViewModel.settingsMixedPort),
+            ("redir-port", "ui.settings.port.redir", "arrowshape.turn.up.right", self.$appViewModel.settingsRedirPort),
+            ("tproxy-port", "ui.settings.port.tproxy", "shield.lefthalf.filled", self.$appViewModel.settingsTProxyPort),
         ]
+        let configuredProxyPortFields = proxyPortFields.filter { item in
+            let value = (proxyPortDraftValues[item.key] ?? item.text.wrappedValue)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return item.key == focusedProxyPortKey || proxyPortDraftValues[item.key] != nil || (!value.isEmpty && value != "0")
+        }
         let localOnlyItems: [(id: String, title: String, symbol: String, isOn: Binding<Bool>)] = [
             (
                 "launch-at-login",
@@ -346,6 +384,7 @@ struct SystemTabView: TranslatingView {
                 { await self.appViewModel.flushDNSCache() }),
         ]
         let selectedLogLevel = self.appViewModel.stringValue(for: .logLevel)
+        let syncingSettingsKey = self.appViewModel.settingsSyncingKey
         let systemProxyExceptionsTitle = isRemote
             ? "\(tr("ui.section.system_proxy_exceptions")) (\(tr("ui.machine.local_label")))"
             : self.tr("ui.section.system_proxy_exceptions")
@@ -396,8 +435,8 @@ struct SystemTabView: TranslatingView {
                     onSelect: { level in
                         Task { await self.appViewModel.applyEditableCoreSetting(.logLevel, to: level.rawValue) }
                     }))
-                    .disabled(self.appViewModel.isCoreSettingSyncing || !self.appViewModel.isControllerAccessEnabled)
-                    .opacity((self.appViewModel.isCoreSettingSyncing || !self.appViewModel.isControllerAccessEnabled) ? 0.62 : 1)
+                    .disabled(syncingSettingsKey == AppViewModel.EditableCoreSetting.logLevel.id || !self.appViewModel.isControllerAccessEnabled)
+                    .opacity(!self.appViewModel.isControllerAccessEnabled ? 0.62 : 1)
                 Button {
                     self.isExceptionsExpanded.toggle()
                 } label: {
@@ -491,6 +530,7 @@ struct SystemTabView: TranslatingView {
                 .clipped()
                 .opacity(self.isExceptionsExpanded ? 1 : 0)
             }
+            .simultaneousGesture(TapGesture().onEnded { self.endProxyPortEditing() })
             .animation(.spring(response: 0.30, dampingFraction: 0.80), value: self.isExceptionsExpanded)
 
             VStack(spacing: 0) {
@@ -498,24 +538,47 @@ struct SystemTabView: TranslatingView {
                     isRemote ? self.tr("ui.section.core_settings_remote") : self.tr("ui.section.core_settings"),
                     symbol: "gearshape.2")
                 ForEach(coreToggleItems, id: \.id) { item in
+                    let isSyncing = syncingSettingsKey == item.id
                     self.settingsToggleRow(
                         item.title,
                         symbol: item.symbol,
                         isOn: item.isOn,
-                        isDisabled: self.appViewModel.isCoreSettingSyncing || !self.appViewModel.isControllerAccessEnabled)
+                        isDisabled: isSyncing || !self.appViewModel.isControllerAccessEnabled)
                 }
             }
+            .simultaneousGesture(TapGesture().onEnded { self.endProxyPortEditing() })
 
             VStack(spacing: 0) {
-                self.settingsCardHeader(
-                    self.tr("ui.section.proxy_ports"),
-                    symbol: "point.3.connected.trianglepath.dotted")
+                Button {
+                    self.endProxyPortEditing()
+                    self.isProxyPortsExpanded.toggle()
+                } label: {
+                    HStack(spacing: T.space6) {
+                        Image(systemName: "point.3.connected.trianglepath.dotted")
+                            .font(.app(size: T.FontSize.caption, weight: .semibold))
+                            .foregroundStyle(nativeTertiaryLabel)
+                        Text(self.tr("ui.section.proxy_ports"))
+                            .font(.app(size: T.FontSize.body, weight: .bold))
+                            .foregroundStyle(nativeTertiaryLabel)
+                            .textCase(.uppercase)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.app(size: T.FontSize.caption, weight: .semibold))
+                            .foregroundStyle(nativeTertiaryLabel)
+                            .rotationEffect(.degrees(self.isProxyPortsExpanded ? 90 : 0))
+                    }
+                    .menuRowPadding(vertical: T.space2)
+                    .contentShape(Rectangle())
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
 
                 VStack(alignment: .leading, spacing: T.space4) {
-                    ForEach(proxyPortFields, id: \.titleKey) { item in
+                    ForEach(self.isProxyPortsExpanded ? proxyPortFields : configuredProxyPortFields, id: \.key) { item in
                         self.settingsPortFieldRow(
                             self.tr(item.titleKey),
                             symbol: item.symbol,
+                            key: item.key,
                             text: item.text)
                     }
                 }
@@ -523,6 +586,7 @@ struct SystemTabView: TranslatingView {
                 .disabled(!self.appViewModel.isControllerAccessEnabled)
                 .opacity(self.appViewModel.isControllerAccessEnabled ? 1 : 0.62)
             }
+            .animation(.spring(response: 0.30, dampingFraction: 0.80), value: self.isProxyPortsExpanded)
 
             VStack(spacing: 0) {
                 self.settingsCardHeader(
@@ -551,6 +615,7 @@ struct SystemTabView: TranslatingView {
                 }
                 .menuRowPadding(vertical: T.space4)
             }
+            .simultaneousGesture(TapGesture().onEnded { self.endProxyPortEditing() })
         }
         .overlay(alignment: .top) {
             if let feedback = settingsFeedbackState {
@@ -559,6 +624,13 @@ struct SystemTabView: TranslatingView {
                     color: feedback.color,
                     symbol: feedback.symbol)
             }
+        }
+        .onChange(of: self.focusedProxyPortKey) { newValue in
+            let previousKey = self.lastFocusedProxyPortKey
+            self.lastFocusedProxyPortKey = newValue
+            guard let previousKey, previousKey != newValue else { return }
+            guard let previousField = proxyPortFields.first(where: { $0.key == previousKey }) else { return }
+            Task { await self.commitProxyPortDraft(key: previousKey, text: previousField.text) }
         }
     }
 }

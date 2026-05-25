@@ -85,6 +85,7 @@ struct MenuBarRootView: TranslatingView {
             Spacer(minLength: 0)
         }
         .frame(width: MenuBarLayoutTokens.panelWidth, alignment: .topLeading)
+        .menuBarDismissInputFocusOnOutsideClick()
     }
 
     private var panelSections: some View {

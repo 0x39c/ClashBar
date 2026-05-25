@@ -212,6 +212,7 @@ extension AppViewModel {
 
     private func refreshMediumFrequency() async {
         guard isPanelPresented else { return }
+        self.updateDataAcquisitionPolicy()
         await runRefresh {
             let client = try self.clientOrThrow()
             let snapshot = try await FetchMediumFrequencySnapshotUseCase(
@@ -507,9 +508,16 @@ extension AppViewModel {
             try await block()
             apiStatus = .healthy
         } catch {
+            guard !self.isCancellationLike(error) else { return }
             apiStatus = .degraded
             appendLog(level: "error", message: error.localizedDescription)
         }
+    }
+
+    private func isCancellationLike(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+        return false
     }
 
     func runNoResponseAction(_ name: String, operation: () async throws -> Void) async {

@@ -27,9 +27,10 @@ extension AppViewModel {
             self.apiClient = nil
 
             if let snapshot = self.loadPersistedEditableSettingsSnapshot() {
-                self.applyEditableSettingsSnapshotToUI(snapshot)
-                self.preserveLocalSettingsOnNextSync = true
-                self.pendingAppLaunchOverlaySettings = snapshot
+                self.applyEditableSettingsSnapshotToUI(snapshot, restoreExplicitKeys: true)
+                if !snapshot.explicitKeys.isEmpty {
+                    self.pendingAppLaunchOverlaySettings = snapshot
+                }
             }
             self.lastSyncedEditableSettings = nil
             if !self.isControllerAccessEnabled {

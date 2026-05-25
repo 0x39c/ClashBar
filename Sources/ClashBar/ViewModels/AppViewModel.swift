@@ -244,6 +244,8 @@ final class AppViewModel: ObservableObject {
     @Published var settingsErrorMessage: String?
     @Published var settingsSavedMessage: String?
     var lastSyncedEditableSettings: EditableSettingsSnapshot?
+    var explicitEditableSettingKeys: Set<String> = []
+    var pendingProxyPortAutoSaveKeys: Set<String> = []
     var preserveLocalSettingsOnNextSync = false
     var pendingConfigSwitchOverlaySettings: EditableSettingsSnapshot?
     var pendingAppLaunchOverlaySettings: EditableSettingsSnapshot?

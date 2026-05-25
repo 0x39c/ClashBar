@@ -69,9 +69,10 @@ extension AppViewModel {
         // Always start in local mode. Remote target is session-level only.
         self.remoteMachineStore.resetActiveTarget()
         if let persisted = loadPersistedEditableSettingsSnapshot() {
-            applyEditableSettingsSnapshotToUI(persisted)
-            self.preserveLocalSettingsOnNextSync = true
-            self.pendingAppLaunchOverlaySettings = persisted
+            applyEditableSettingsSnapshotToUI(persisted, restoreExplicitKeys: true)
+            if !persisted.explicitKeys.isEmpty {
+                pendingAppLaunchOverlaySettings = persisted
+            }
         }
         let persistedSystemProxyExceptions = loadPersistedSystemProxyExceptions() ?? Self.defaultSystemProxyExceptions
         self.replaceSystemProxyExceptionsDraft(with: persistedSystemProxyExceptions)

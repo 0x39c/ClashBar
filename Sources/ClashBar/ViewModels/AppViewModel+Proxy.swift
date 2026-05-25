@@ -19,6 +19,8 @@ extension AppViewModel {
             guard await self.confirmModeSwitchApplied(target) else {
                 throw ModeSwitchVerificationError.unconfirmed(target)
             }
+            explicitEditableSettingKeys.insert("mode")
+            persistEditableSettingsSnapshot()
         } catch {
             // Roll back the optimistic update so UI and state do not silently drift
             // away from the core after a rejected or not-yet-applied PATCH.
@@ -30,6 +32,7 @@ extension AppViewModel {
                     "log.action.failed",
                     tr("log.action_name.switch_mode", target.rawValue),
                     error.localizedDescription))
+            await self.reconcileEditableSettingsWithRuntimeConfig()
         }
     }
 
@@ -183,8 +186,17 @@ extension AppViewModel {
             ? modeScopedGroups
             : modeScopedGroups.filter { $0.hidden != true })
             .filter { self.shouldRefreshLatency(for: $0) }
+        let maxConcurrentChecks = 3
         await withTaskGroup(of: Void.self) { taskGroup in
-            for group in groups {
+            var iterator = groups.makeIterator()
+            for _ in 0..<min(maxConcurrentChecks, groups.count) {
+                guard let group = iterator.next() else { break }
+                taskGroup.addTask { [weak self] in
+                    await self?.refreshGroupLatency(group)
+                }
+            }
+            while await taskGroup.next() != nil {
+                guard let group = iterator.next() else { continue }
                 taskGroup.addTask { [weak self] in
                     await self?.refreshGroupLatency(group)
                 }
