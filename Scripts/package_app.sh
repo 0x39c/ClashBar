@@ -16,12 +16,9 @@ REQUIRE_MIHOMO_BINARY="${REQUIRE_MIHOMO_BINARY:-1}"
 BUNDLE_MIHOMO_BINARY="${BUNDLE_MIHOMO_BINARY:-1}"
 
 APP="$ROOT/dist/${APP_NAME}.app"
-HELPER_LABEL="com.clashbar.helper"
-HELPER_PLIST_SOURCE="$ROOT/Sources/ProxyHelper/LaunchDaemons/${HELPER_LABEL}.plist"
-
 cd "$ROOT"
 
-BUILD_ARGS=(-c release)
+BUILD_ARGS=(--product ClashBar -c release)
 if [ "$RELEASE_OPTIMIZE_FOR_SIZE" = "1" ]; then
   BUILD_ARGS+=(-Xswiftc -Osize)
 fi
@@ -33,17 +30,13 @@ swift build "${BUILD_ARGS[@]}"
 if [ -n "$TARGET_ARCH" ]; then
   BIN_CANDIDATE="$ROOT/.build/${TARGET_ARCH}-apple-macosx/release/ClashBar"
   RESOURCE_BUNDLE_CANDIDATE="$ROOT/.build/${TARGET_ARCH}-apple-macosx/release/ClashBar_ClashBar.bundle"
-  HELPER_BIN_CANDIDATE="$ROOT/.build/${TARGET_ARCH}-apple-macosx/release/ClashBarProxyHelper"
   BIN_PATTERN="*/${TARGET_ARCH}-apple-macosx/release/ClashBar"
   RESOURCE_BUNDLE_PATTERN="*/${TARGET_ARCH}-apple-macosx/release/ClashBar_ClashBar.bundle"
-  HELPER_PATTERN="*/${TARGET_ARCH}-apple-macosx/release/ClashBarProxyHelper"
 else
   BIN_CANDIDATE="$ROOT/.build/release/ClashBar"
   RESOURCE_BUNDLE_CANDIDATE="$ROOT/.build/release/ClashBar_ClashBar.bundle"
-  HELPER_BIN_CANDIDATE="$ROOT/.build/release/ClashBarProxyHelper"
   BIN_PATTERN="*/release/ClashBar"
   RESOURCE_BUNDLE_PATTERN="*/release/ClashBar_ClashBar.bundle"
-  HELPER_PATTERN="*/release/ClashBarProxyHelper"
 fi
 
 resolve_build_artifact() {
@@ -172,7 +165,6 @@ remove_bundled_mihomo_candidates() {
 
 BIN="$(resolve_build_artifact "$BIN_CANDIDATE" file "$BIN_PATTERN")"
 RESOURCE_BUNDLE="$(resolve_build_artifact "$RESOURCE_BUNDLE_CANDIDATE" dir "$RESOURCE_BUNDLE_PATTERN")"
-HELPER_BIN="$(resolve_build_artifact "$HELPER_BIN_CANDIDATE" file "$HELPER_PATTERN")"
 
 if [ ! -f "$BIN" ]; then
   echo "Build output not found: $BIN" >&2
@@ -182,21 +174,11 @@ if [ ! -d "$RESOURCE_BUNDLE" ]; then
   echo "Resource bundle not found: $RESOURCE_BUNDLE" >&2
   exit 1
 fi
-if [ ! -f "$HELPER_BIN" ]; then
-  echo "Helper build output not found: $HELPER_BIN" >&2
-  exit 1
-fi
-if [ ! -f "$HELPER_PLIST_SOURCE" ]; then
-  echo "Helper plist not found: $HELPER_PLIST_SOURCE" >&2
-  exit 1
-fi
 
 rm -rf "$APP"
 mkdir -p \
   "$APP/Contents/MacOS" \
-  "$APP/Contents/Resources" \
-  "$APP/Contents/Library/HelperTools" \
-  "$APP/Contents/Library/LaunchDaemons"
+  "$APP/Contents/Resources"
 
 cp "$BIN" "$APP/Contents/MacOS/ClashBar"
 chmod +x "$APP/Contents/MacOS/ClashBar"
@@ -234,14 +216,8 @@ else
   echo "Skipped bundling mihomo payload."
 fi
 
-cp "$HELPER_BIN" "$APP/Contents/Library/HelperTools/$HELPER_LABEL"
-chmod +x "$APP/Contents/Library/HelperTools/$HELPER_LABEL"
-cp "$HELPER_PLIST_SOURCE" "$APP/Contents/Library/LaunchDaemons/${HELPER_LABEL}.plist"
-
 print_artifact_size "Main binary before strip" "$APP/Contents/MacOS/ClashBar"
-print_artifact_size "Helper binary before strip" "$APP/Contents/Library/HelperTools/$HELPER_LABEL"
 strip_binary_if_enabled "Main binary" "$APP/Contents/MacOS/ClashBar"
-strip_binary_if_enabled "Helper binary" "$APP/Contents/Library/HelperTools/$HELPER_LABEL"
 
 ICON_PLIST_ENTRY=""
 if [ -f "$PREPROCESSED_ICON_PATH" ]; then
@@ -282,7 +258,6 @@ PLIST
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
 
 if command -v codesign >/dev/null 2>&1; then
-  codesign --force --sign "$CODESIGN_IDENTITY" "$APP/Contents/Library/HelperTools/$HELPER_LABEL"
   codesign --force --sign "$CODESIGN_IDENTITY" "$APP"
 fi
 

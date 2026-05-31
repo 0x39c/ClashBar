@@ -241,6 +241,7 @@ struct MenuBarRootView: TranslatingView {
     func refreshDerivedData(for tab: RootTab) {
         switch tab {
         case .proxy:
+            guard AppViewModel.systemProxyFeatureEnabled else { return }
             Task { await self.appViewModel.refreshSystemProxyHelperRuntimeSnapshot() }
         case .system, .rules, .connections, .logs:
             break

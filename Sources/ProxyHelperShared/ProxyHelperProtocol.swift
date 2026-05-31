@@ -6,10 +6,13 @@ public enum ProxyHelperConstants {
     public static let helperBundleProgram = "Contents/Library/HelperTools/com.clashbar.helper"
     public static let allowedClientBundleIdentifier = "com.clashbar"
     public static let allowedClientRequirement = "identifier \"\(allowedClientBundleIdentifier)\""
+    public static let pairingTokenByteCount = 32
+    public static let maxPairingTokenLength = 128
 }
 
 @objc(ProxyHelperProtocol)
 public protocol ProxyHelperProtocol {
+    func authenticate(pairingToken: String, completion: @escaping (Bool, String?) -> Void)
     func ping(completion: @escaping (Bool, String?) -> Void)
     func setSystemProxy(
         host: String,

@@ -59,14 +59,26 @@ extension AppViewModel {
     }
 
     func syncConfigDisplayState() {
-        configDirectoryPath = configRepository.configDirectory?.path ?? "-"
-        availableConfigFileNames = configRepository.availableConfigs.map(\.lastPathComponent)
+        let nextConfigDirectoryPath = configRepository.configDirectory?.path ?? "-"
+        if configDirectoryPath != nextConfigDirectoryPath {
+            configDirectoryPath = nextConfigDirectoryPath
+        }
+
+        let nextConfigFileNames = configRepository.availableConfigs.map(\.lastPathComponent)
+        let configFileNamesChanged = availableConfigFileNames != nextConfigFileNames
+        if configFileNamesChanged {
+            availableConfigFileNames = nextConfigFileNames
+        }
         if selectedConfigName == "-", let first = availableConfigFileNames.first {
             selectedConfigName = first
         }
         self.refreshSelectedProxyProviderName()
-        self.pruneSSIDStrategyRulesIfNeeded()
-        self.pruneRemoteConfigSubscriptionsIfNeeded()
+        if configFileNamesChanged {
+            if Self.ssidStrategyFeatureEnabled {
+                self.pruneSSIDStrategyRulesIfNeeded()
+            }
+            self.pruneRemoteConfigSubscriptionsIfNeeded()
+        }
         self.refreshRemoteConfigMenuStates()
     }
 
@@ -202,6 +214,7 @@ extension AppViewModel {
     }
 
     func pruneSSIDStrategyRulesIfNeeded() {
+        guard Self.ssidStrategyFeatureEnabled else { return }
         guard self.configRepository.configDirectory != nil else { return }
 
         let validConfigNames = Set(self.availableConfigFileNames.map(\.trimmed))

@@ -340,12 +340,18 @@ extension AppViewModel {
     }
 
     private func refreshConfigStateAfterMutation() {
-        _ = configRepository.reloadConfigs()
+        let configListChanged = configRepository.reloadConfigsIfChanged()
         if self.syncSelectedConfigSelection(configRepository.selectedConfig) == nil {
             selectedConfigName = "-"
             defaults.removeObject(forKey: selectedConfigKey)
         }
-        syncConfigDisplayState()
+
+        if configListChanged {
+            syncConfigDisplayState()
+        } else {
+            self.refreshSelectedProxyProviderName()
+            self.refreshRemoteConfigMenuStates()
+        }
     }
 
     @discardableResult

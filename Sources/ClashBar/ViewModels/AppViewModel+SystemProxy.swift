@@ -2,6 +2,8 @@ import Foundation
 
 @MainActor
 extension AppViewModel {
+    static let systemProxyFeatureEnabled = false
+
     static let defaultSystemProxyExceptions: [String] = [
         "::1",
         "*.local",
@@ -107,7 +109,8 @@ extension AppViewModel {
     }
 
     var hasSystemProxyOpenIntent: Bool {
-        self.isSystemProxyEnabled
+        guard Self.systemProxyFeatureEnabled else { return false }
+        return self.isSystemProxyEnabled
             || self.systemProxyEnableIntentInFlight
             || (self.pendingCoreFeatureRecoveryState?.systemProxyEnabled ?? false)
             || self.defaults.bool(forKey: self.systemProxyEnabledOnQuitKey)
@@ -145,6 +148,7 @@ extension AppViewModel {
     }
 
     func applySystemProxy(enabled: Bool, host: String, ports: SystemProxyPorts) async throws {
+        guard Self.systemProxyFeatureEnabled else { return }
         try await self.systemProxyRepository.apply(enabled: enabled, host: host, ports: ports)
     }
 
@@ -179,7 +183,9 @@ extension AppViewModel {
 
     func handleApplicationDidBecomeActive() {
         self.refreshLaunchAtLoginStatus()
-        self.handleSSIDStrategyAppDidBecomeActive()
+        if Self.ssidStrategyFeatureEnabled {
+            self.handleSSIDStrategyAppDidBecomeActive()
+        }
         guard !self.isRemoteTarget, self.hasSystemProxyOpenIntent else { return }
 
         Task { [weak self] in

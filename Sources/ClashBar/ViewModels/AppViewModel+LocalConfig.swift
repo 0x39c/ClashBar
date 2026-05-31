@@ -522,6 +522,12 @@ extension AppViewModel {
         let previousCanonicalPath = previousSelectedURL?.standardizedFileURL.resolvingSymlinksInPath().path
         let targetCanonicalPath = matched.standardizedFileURL.resolvingSymlinksInPath().path
 
+        if previousCanonicalPath == targetCanonicalPath {
+            _ = self.syncSelectedConfigSelection(matched)
+            syncConfigDisplayState()
+            return
+        }
+
         if coreRepository.isRunning,
            previousCanonicalPath != targetCanonicalPath
         {

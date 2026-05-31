@@ -437,6 +437,7 @@ final class AppViewModel: ObservableObject {
     var proxyProvidersAPIUnavailableLogged = false
     var activatedTabRefreshGeneration: Int = 0
     var configFileSignatureSnapshot: [String: String] = [:]
+    var configDirectoryFullRescanTick = 0
     var pendingConfigChangeRestart = false
     var isLatestAppReleaseCheckInFlight = false
 

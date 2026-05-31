@@ -113,12 +113,7 @@ struct SystemProxyService {
             return
         }
 
-        switch self.attemptHelperRegistration() {
-        case .ready:
-            _ = try? await self.triggerHelperDemandLaunchAndWait()
-        case .needsApproval, .failed:
-            return
-        }
+        _ = self.attemptHelperRegistration()
     }
 
     func applySystemProxy(enabled: Bool, host: String, ports: SystemProxyPorts) async throws {
@@ -661,6 +656,16 @@ struct SystemProxyService {
         return ProcessResult(exitCode: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
 
+    private func helperPairingToken() throws -> String {
+        let token = ProxyHelperPairingSecret.token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty,
+              token.count <= ProxyHelperConstants.maxPairingTokenLength
+        else {
+            throw SystemProxyServiceError.helperOperationFailed("Helper pairing token is invalid.")
+        }
+        return token
+    }
+
     private func invokeHelper<Value: Sendable>(
         _ invoke: @escaping (ProxyHelperProtocol, @escaping (Result<Value, Error>) -> Void) -> Void) async throws
         -> Value
@@ -681,7 +686,9 @@ struct SystemProxyService {
         _ invoke: @escaping (ProxyHelperProtocol, @escaping (Result<Value, Error>) -> Void) -> Void) async throws
         -> Value
     {
-        try await withCheckedThrowingContinuation { continuation in
+        let pairingToken = try self.helperPairingToken()
+
+        return try await withCheckedThrowingContinuation { continuation in
             let connection = self.makeConnection()
             let box = ContinuationBox<Value>(continuation)
             let timeoutWorkItem = DispatchWorkItem {
@@ -708,10 +715,21 @@ struct SystemProxyService {
                 return
             }
 
-            invoke(helper) { result in
-                timeoutWorkItem.cancel()
-                defer { connection.invalidate() }
-                box.resume(with: result)
+            helper.authenticate(pairingToken: pairingToken) { success, message in
+                guard success else {
+                    timeoutWorkItem.cancel()
+                    connection.invalidate()
+                    box.resume(
+                        with: .failure(
+                            SystemProxyServiceError.helperOperationFailed(message ?? "Helper authentication failed.")))
+                    return
+                }
+
+                invoke(helper) { result in
+                    timeoutWorkItem.cancel()
+                    defer { connection.invalidate() }
+                    box.resume(with: result)
+                }
             }
         }
     }
@@ -720,13 +738,18 @@ struct SystemProxyService {
         let semaphore = DispatchSemaphore(value: 0)
 
         DispatchQueue.global(qos: .userInitiated).async { [self] in
-            // Reuse the shared connection factory instead of re-inlining the
-            // NSXPCConnection dance so both async and blocking paths stay in
-            // sync on mach service name, protocol, and activation.
-            // Caller blocks on `semaphore` below, so strong `self` is safe.
+            let pairingToken: String
+            do {
+                pairingToken = try self.helperPairingToken()
+            } catch {
+                semaphore.signal()
+                return
+            }
+
             let connection = self.makeConnection()
 
             guard let helper = connection.remoteObjectProxyWithErrorHandler({ _ in
+                connection.invalidate()
                 semaphore.signal()
             }) as? ProxyHelperProtocol else {
                 connection.invalidate()
@@ -734,9 +757,17 @@ struct SystemProxyService {
                 return
             }
 
-            helper.clearSystemProxy { _, _ in
-                connection.invalidate()
-                semaphore.signal()
+            helper.authenticate(pairingToken: pairingToken) { success, _ in
+                guard success else {
+                    connection.invalidate()
+                    semaphore.signal()
+                    return
+                }
+
+                helper.clearSystemProxy { _, _ in
+                    connection.invalidate()
+                    semaphore.signal()
+                }
             }
         }
 

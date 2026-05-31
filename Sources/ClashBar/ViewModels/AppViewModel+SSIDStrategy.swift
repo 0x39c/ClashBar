@@ -2,9 +2,12 @@ import Foundation
 
 @MainActor
 extension AppViewModel {
+    static let ssidStrategyFeatureEnabled = false
+
     var ssidStrategyEnabled: Bool {
-        get { self.ssidStrategyEnabledStorage }
+        get { Self.ssidStrategyFeatureEnabled && self.ssidStrategyEnabledStorage }
         set {
+            guard Self.ssidStrategyFeatureEnabled else { return }
             guard self.ssidStrategyEnabledStorage != newValue else { return }
             self.ssidStrategyEnabledStorage = newValue
             self.handleSSIDStrategyEnabledStateChanged()
@@ -17,6 +20,7 @@ extension AppViewModel {
 
     @discardableResult
     func startSSIDStrategyMonitoringIfNeeded() -> Bool {
+        guard Self.ssidStrategyFeatureEnabled else { return false }
         guard !self.isSSIDStrategyMonitoring else { return false }
         self.isSSIDStrategyMonitoring = true
 
@@ -36,6 +40,7 @@ extension AppViewModel {
     }
 
     func refreshSSIDStrategyState(requestAuthorizationIfNeeded: Bool = false) {
+        guard Self.ssidStrategyFeatureEnabled else { return }
         // The first enable of SSID auto-switch must still reach
         // `requestAuthorizationIfNeeded()` even when monitoring is booted up
         // in this same call — otherwise the system permission sheet never
@@ -53,6 +58,7 @@ extension AppViewModel {
     }
 
     func toggleCurrentSSIDBinding(for configFileName: String) {
+        guard Self.ssidStrategyFeatureEnabled else { return }
         guard !self.isRemoteTarget else { return }
         let normalizedConfigFileName = configFileName.trimmed
         guard !normalizedConfigFileName.isEmpty else { return }
@@ -92,6 +98,7 @@ extension AppViewModel {
     }
 
     func removeSSIDStrategyBinding(ssid: String) {
+        guard Self.ssidStrategyFeatureEnabled else { return }
         let normalizedSSID = ssid.trimmed
         guard !normalizedSSID.isEmpty else { return }
 
@@ -104,6 +111,7 @@ extension AppViewModel {
     }
 
     func applySSIDStrategyForCurrentSSIDIfNeeded() async {
+        guard Self.ssidStrategyFeatureEnabled else { return }
         guard self.ssidStrategyEnabled else { return }
         guard !self.isRemoteTarget else { return }
 
@@ -166,6 +174,7 @@ extension AppViewModel {
     }
 
     private func handleSSIDStrategyEnabledStateChanged() {
+        guard Self.ssidStrategyFeatureEnabled else { return }
         if self.ssidStrategyEnabled {
             self.refreshSSIDStrategyState(requestAuthorizationIfNeeded: true)
             self.scheduleSSIDStrategyApplication()
@@ -182,6 +191,7 @@ extension AppViewModel {
     }
 
     private func bindSSID(_ ssid: String, to configFileName: String, applyStrategy: Bool = true) {
+        guard Self.ssidStrategyFeatureEnabled else { return }
         let normalizedSSID = ssid.trimmed
         let normalizedConfigFileName = configFileName.trimmed
         guard !normalizedSSID.isEmpty, !normalizedConfigFileName.isEmpty else { return }
@@ -202,6 +212,7 @@ extension AppViewModel {
 
     @discardableResult
     private func setSSIDStrategyRules(_ rules: [SSIDStrategyRule], applyStrategy: Bool = true) -> Bool {
+        guard Self.ssidStrategyFeatureEnabled else { return false }
         let normalizedRules = SSIDStrategyRule.normalized(rules)
         guard normalizedRules != self.ssidStrategyRules else {
             if applyStrategy, self.ssidStrategyEnabled {
@@ -221,6 +232,7 @@ extension AppViewModel {
     }
 
     private func scheduleSSIDStrategyApplication() {
+        guard Self.ssidStrategyFeatureEnabled else { return }
         self.ssidStrategyApplyTask?.cancel()
         // Task inherits MainActor isolation from this enclosing @MainActor
         // extension, so an explicit `@MainActor` annotation is redundant.
@@ -231,6 +243,7 @@ extension AppViewModel {
     }
 
     private func handleSSIDMonitorSnapshot(_ snapshot: SSIDMonitorSnapshot) {
+        guard Self.ssidStrategyFeatureEnabled else { return }
         let previousSSID = self.ssidStrategyCurrentSSID
         let previousAuthorizationStatus = self.ssidStrategyAuthorizationStatus
         let previousRules = self.ssidStrategyRules

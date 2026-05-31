@@ -70,7 +70,7 @@
 "ui.section.core_settings" = "Core Settings";
 "ui.section.core_settings_remote" = "Core Settings (Remote)";
 
-"ui.quick.switch_config" = "Switch Config";
+"ui.quick.current_config" = "Current Config";
 "ui.quick.system_proxy" = "System Proxy";
 "ui.quick.tun_mode" = "TUN Mode";
 "ui.quick.copy_terminal" = "Copy Terminal Command";

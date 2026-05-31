@@ -60,8 +60,10 @@ extension AppViewModel {
 
         if case .local = target {
             await self.applyPendingAppLaunchSettingsOverlayIfNeeded(syncSystemProxyPort: false)
-            self.refreshSSIDStrategyState(requestAuthorizationIfNeeded: self.ssidStrategyEnabled)
-            await self.applySSIDStrategyForCurrentSSIDIfNeeded()
+            if Self.ssidStrategyFeatureEnabled {
+                self.refreshSSIDStrategyState(requestAuthorizationIfNeeded: self.ssidStrategyEnabled)
+                await self.applySSIDStrategyForCurrentSSIDIfNeeded()
+            }
         }
 
         // Sync statusText so isRuntimeRunning reflects the active target.

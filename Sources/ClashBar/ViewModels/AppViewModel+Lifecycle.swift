@@ -210,14 +210,16 @@ extension AppViewModel {
 
     func shutdownForTermination() {
         self.prepareForTermination()
-        self.systemProxyRepository.clearBlocking(timeout: 2.0)
+        if Self.systemProxyFeatureEnabled, self.isSystemProxyEnabled {
+            self.systemProxyRepository.clearBlocking(timeout: 2.0)
+        }
         if coreRepository.isRunning {
             self.coreRepository.stopImmediately()
         }
     }
 
     private func prepareForTermination() {
-        defaults.set(isSystemProxyEnabled, forKey: systemProxyEnabledOnQuitKey)
+        defaults.set(Self.systemProxyFeatureEnabled && isSystemProxyEnabled, forKey: systemProxyEnabledOnQuitKey)
         shouldResumeCoreAfterNetworkRecovery = false
         stopNetworkReachabilityMonitoring(resetState: true)
         stopConfigDirectoryMonitoring()
@@ -422,7 +424,7 @@ extension AppViewModel {
     private func currentCoreFeatureRecoverySnapshot() -> CoreFeatureRecoveryState {
         self.mergeCoreFeatureRecoveryStates(
             CoreFeatureRecoveryState(
-                systemProxyEnabled: self.isSystemProxyEnabled,
+                systemProxyEnabled: Self.systemProxyFeatureEnabled && self.isSystemProxyEnabled,
                 tunEnabled: self.isTunEnabled),
             self.pendingCoreFeatureRecoveryState)
     }
@@ -443,7 +445,9 @@ extension AppViewModel {
     {
         let runtimeRunningBeforeTransition = self.isRuntimeRunning
         let capturedRecovery = CoreFeatureRecoveryState(
-            systemProxyEnabled: runtimeRunningBeforeTransition && self.isSystemProxyEnabled,
+            systemProxyEnabled: Self.systemProxyFeatureEnabled
+                && runtimeRunningBeforeTransition
+                && self.isSystemProxyEnabled,
             tunEnabled: runtimeRunningBeforeTransition && self.isTunEnabled)
 
         let baseRecovery: CoreFeatureRecoveryState = if capturedRecovery.shouldRecoverAnyFeature {
@@ -470,7 +474,7 @@ extension AppViewModel {
             self.appendLog(level: "info", message: self.tr("log.tun.toggled", self.tr("log.tun.disabled")))
         }
 
-        guard self.isSystemProxyEnabled else { return }
+        guard Self.systemProxyFeatureEnabled, self.isSystemProxyEnabled else { return }
         self.isProxySyncing = true
         defer { self.isProxySyncing = false }
 
@@ -492,7 +496,7 @@ extension AppViewModel {
     }
 
     func seedCoreFeatureRecoveryFromPersistedQuitState() {
-        let wasSystemProxyEnabled = defaults.bool(forKey: systemProxyEnabledOnQuitKey)
+        let wasSystemProxyEnabled = Self.systemProxyFeatureEnabled && defaults.bool(forKey: systemProxyEnabledOnQuitKey)
         defaults.removeObject(forKey: systemProxyEnabledOnQuitKey)
         guard wasSystemProxyEnabled else { return }
         // Only seed when no in-flight recovery is already pending (e.g. from stop/restart).
@@ -515,7 +519,7 @@ extension AppViewModel {
             return
         }
 
-        var remainingSystemProxyRecovery = recovery.systemProxyEnabled
+        var remainingSystemProxyRecovery = Self.systemProxyFeatureEnabled && recovery.systemProxyEnabled
         var remainingTunRecovery = recovery.tunEnabled
 
         if recovery.tunEnabled {
@@ -543,7 +547,7 @@ extension AppViewModel {
             }
         }
 
-        if recovery.systemProxyEnabled {
+        if Self.systemProxyFeatureEnabled, recovery.systemProxyEnabled {
             self.isProxySyncing = true
             defer { self.isProxySyncing = false }
 

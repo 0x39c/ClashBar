@@ -64,8 +64,10 @@ extension AppViewModel {
         self.remoteConfigSubscriptions = loadPersistedRemoteConfigSubscriptions()
         pruneRemoteConfigSubscriptionsIfNeeded()
         restartRemoteConfigBackgroundTasksIfNeeded()
-        self.ssidStrategyRules = loadPersistedSSIDStrategyRules()
-        self.pruneSSIDStrategyRulesIfNeeded()
+        if Self.ssidStrategyFeatureEnabled {
+            self.ssidStrategyRules = loadPersistedSSIDStrategyRules()
+            self.pruneSSIDStrategyRulesIfNeeded()
+        }
         // Always start in local mode. Remote target is session-level only.
         self.remoteMachineStore.resetActiveTarget()
         if let persisted = loadPersistedEditableSettingsSnapshot() {
@@ -105,7 +107,9 @@ extension AppViewModel {
             }
         }
 
-        self.refreshSSIDStrategyState(requestAuthorizationIfNeeded: self.ssidStrategyEnabled)
+        if Self.ssidStrategyFeatureEnabled {
+            self.refreshSSIDStrategyState(requestAuthorizationIfNeeded: self.ssidStrategyEnabled)
+        }
         self.updateNetworkReachabilityMonitoringState()
         self.refreshMenuBarDisplaySnapshotIfNeeded()
     }

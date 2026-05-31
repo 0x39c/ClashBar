@@ -69,6 +69,7 @@ extension AppViewModel {
     }
 
     func toggleSystemProxy(_ enabled: Bool) async {
+        guard Self.systemProxyFeatureEnabled else { return }
         guard self.isControllerAccessEnabled || self.isRemoteTarget else { return }
         isProxySyncing = true
         self.systemProxyEnableIntentInFlight = enabled

@@ -1,9 +1,11 @@
+import Darwin
 import Foundation
 import ProxyHelperShared
 import Security
 import SystemConfiguration
 
 private enum ProxyHelperError: LocalizedError {
+    case authenticationFailed
     case invalidHost
     case invalidPort
     case missingPreferences
@@ -13,6 +15,8 @@ private enum ProxyHelperError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .authenticationFailed:
+            "Authentication failed"
         case .invalidHost:
             "Invalid proxy host"
         case .invalidPort:
@@ -52,7 +56,7 @@ private final class SystemProxyConfigurator {
     ]
 
     func setSystemProxy(host: String, httpPort: Int, httpsPort: Int, socksPort: Int) throws {
-        try self.validate(host: host)
+        let normalizedHost = try self.normalizedHost(host)
         let ports = try validatedPorts(
             httpPort: httpPort,
             httpsPort: httpsPort,
@@ -67,7 +71,7 @@ private final class SystemProxyConfigurator {
                     self.configureProxyEntry(
                         config: &config,
                         spec: spec,
-                        host: host,
+                        host: normalizedHost,
                         port: portValue)
                 }
 
@@ -108,7 +112,7 @@ private final class SystemProxyConfigurator {
     }
 
     func isSystemProxyConfigured(host: String, httpPort: Int, httpsPort: Int, socksPort: Int) throws -> Bool {
-        try self.validate(host: host)
+        let normalizedHost = try self.normalizedHost(host)
         let ports = try validatedPorts(
             httpPort: httpPort,
             httpsPort: httpsPort,
@@ -125,7 +129,7 @@ private final class SystemProxyConfigurator {
                 guard self.proxyMatchesExpectedState(
                     config: config,
                     spec: spec,
-                    expectedHost: host,
+                    expectedHost: normalizedHost,
                     expectedPort: expectedPort)
                 else {
                     return false
@@ -195,11 +199,15 @@ private final class SystemProxyConfigurator {
         }
     }
 
-    private func validate(host: String) throws {
+    private func normalizedHost(_ host: String) throws -> String {
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedHost.isEmpty else {
             throw ProxyHelperError.invalidHost
         }
+        guard trimmedHost.rangeOfCharacter(from: .controlCharacters) == nil else {
+            throw ProxyHelperError.invalidHost
+        }
+        return trimmedHost
     }
 
     private func validatedPorts(
@@ -263,7 +271,7 @@ private final class SystemProxyConfigurator {
     }
 
     private func makePreferences() throws -> SCPreferences {
-        guard let preferences = SCPreferencesCreate(nil, "com.clashbar.helper" as CFString, nil) else {
+        guard let preferences = SCPreferencesCreate(nil, ProxyHelperConstants.machServiceName as CFString, nil) else {
             throw ProxyHelperError.missingPreferences
         }
         return preferences
@@ -412,9 +420,41 @@ private final class SystemProxyConfigurator {
 }
 
 private final class ProxyHelperService: NSObject, ProxyHelperProtocol {
+    private static let authenticationFailureMessage = "Authentication failed."
+
     private let configurator = SystemProxyConfigurator()
+    private let authenticationLock = NSLock()
+    private var isAuthenticated = false
+
+    func authenticate(pairingToken: String, completion: @escaping (Bool, String?) -> Void) {
+        let candidate = pairingToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !candidate.isEmpty,
+              candidate.count <= ProxyHelperConstants.maxPairingTokenLength
+        else {
+            completion(false, Self.authenticationFailureMessage)
+            return
+        }
+
+        let expected = ProxyHelperPairingSecret.token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !expected.isEmpty,
+              expected.count <= ProxyHelperConstants.maxPairingTokenLength,
+              Self.timingSafeEqual(candidate, expected)
+        else {
+            completion(false, Self.authenticationFailureMessage)
+            return
+        }
+
+        self.authenticationLock.lock()
+        self.isAuthenticated = true
+        self.authenticationLock.unlock()
+        completion(true, nil)
+    }
 
     func ping(completion: @escaping (Bool, String?) -> Void) {
+        guard self.hasAuthenticated else {
+            completion(false, Self.authenticationFailureMessage)
+            return
+        }
         completion(true, nil)
     }
 
@@ -425,6 +465,11 @@ private final class ProxyHelperService: NSObject, ProxyHelperProtocol {
         socksPort: Int,
         completion: @escaping (Bool, String?) -> Void)
     {
+        guard self.hasAuthenticated else {
+            completion(false, Self.authenticationFailureMessage)
+            return
+        }
+
         do {
             try self.configurator.setSystemProxy(
                 host: host,
@@ -438,6 +483,11 @@ private final class ProxyHelperService: NSObject, ProxyHelperProtocol {
     }
 
     func clearSystemProxy(completion: @escaping (Bool, String?) -> Void) {
+        guard self.hasAuthenticated else {
+            completion(false, Self.authenticationFailureMessage)
+            return
+        }
+
         do {
             try self.configurator.clearSystemProxy()
             completion(true, nil)
@@ -447,6 +497,11 @@ private final class ProxyHelperService: NSObject, ProxyHelperProtocol {
     }
 
     func getSystemProxyState(completion: @escaping (Bool, Bool, String?) -> Void) {
+        guard self.hasAuthenticated else {
+            completion(false, false, Self.authenticationFailureMessage)
+            return
+        }
+
         do {
             let enabled = try configurator.isSystemProxyEnabled()
             completion(true, enabled, nil)
@@ -456,6 +511,11 @@ private final class ProxyHelperService: NSObject, ProxyHelperProtocol {
     }
 
     func getSystemProxyActiveTarget(completion: @escaping (Bool, String?, Int, String?) -> Void) {
+        guard self.hasAuthenticated else {
+            completion(false, nil, 0, Self.authenticationFailureMessage)
+            return
+        }
+
         do {
             let target = try configurator.systemProxyActiveTarget()
             completion(true, target?.host, target?.port ?? 0, nil)
@@ -471,6 +531,11 @@ private final class ProxyHelperService: NSObject, ProxyHelperProtocol {
         socksPort: Int,
         completion: @escaping (Bool, Bool, String?) -> Void)
     {
+        guard self.hasAuthenticated else {
+            completion(false, false, Self.authenticationFailureMessage)
+            return
+        }
+
         do {
             let configured = try configurator.isSystemProxyConfigured(
                 host: host,
@@ -484,6 +549,11 @@ private final class ProxyHelperService: NSObject, ProxyHelperProtocol {
     }
 
     func getSystemProxyExceptions(completion: @escaping (Bool, String?, String?) -> Void) {
+        guard self.hasAuthenticated else {
+            completion(false, nil, Self.authenticationFailureMessage)
+            return
+        }
+
         do {
             let exceptions = try self.configurator.systemProxyExceptions()
             completion(true, exceptions.joined(separator: "\n"), nil)
@@ -493,6 +563,11 @@ private final class ProxyHelperService: NSObject, ProxyHelperProtocol {
     }
 
     func setSystemProxyExceptions(serializedExceptions: String, completion: @escaping (Bool, String?) -> Void) {
+        guard self.hasAuthenticated else {
+            completion(false, Self.authenticationFailureMessage)
+            return
+        }
+
         do {
             let exceptions = serializedExceptions.components(separatedBy: .newlines)
             try self.configurator.setSystemProxyExceptions(exceptions)
@@ -501,14 +576,116 @@ private final class ProxyHelperService: NSObject, ProxyHelperProtocol {
             completion(false, error.localizedDescription)
         }
     }
+
+    private var hasAuthenticated: Bool {
+        self.authenticationLock.lock()
+        defer { self.authenticationLock.unlock() }
+        return self.isAuthenticated
+    }
+
+    private static func timingSafeEqual(_ lhs: String, _ rhs: String) -> Bool {
+        let lhsBytes = Array(lhs.utf8)
+        let rhsBytes = Array(rhs.utf8)
+        guard lhsBytes.count == rhsBytes.count else { return false }
+
+        var difference: UInt8 = 0
+        for index in lhsBytes.indices {
+            difference |= lhsBytes[index] ^ rhsBytes[index]
+        }
+        return difference == 0
+    }
+}
+
+private final class HelperIdleExitController: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "com.clashbar.helper.idle-exit")
+    private let idleTimeout: TimeInterval
+    private var activeConnectionCount = 0
+    private var idleExitWorkItem: DispatchWorkItem?
+
+    init(idleTimeout: TimeInterval = 30) {
+        self.idleTimeout = idleTimeout
+    }
+
+    func connectionOpened() -> ConnectionLifecycleToken {
+        self.queue.sync {
+            self.activeConnectionCount += 1
+            self.idleExitWorkItem?.cancel()
+            self.idleExitWorkItem = nil
+        }
+
+        return ConnectionLifecycleToken { [weak self] in
+            self?.connectionClosed()
+        }
+    }
+
+    func scheduleExitIfIdle() {
+        self.queue.async {
+            self.scheduleExitIfIdleLocked()
+        }
+    }
+
+    private func connectionClosed() {
+        self.queue.async {
+            self.activeConnectionCount = max(0, self.activeConnectionCount - 1)
+            self.scheduleExitIfIdleLocked()
+        }
+    }
+
+    private func scheduleExitIfIdleLocked() {
+        guard self.activeConnectionCount == 0 else { return }
+        self.idleExitWorkItem?.cancel()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.exitIfStillIdle()
+        }
+        self.idleExitWorkItem = workItem
+        self.queue.asyncAfter(deadline: .now() + self.idleTimeout, execute: workItem)
+    }
+
+    private func exitIfStillIdle() {
+        guard self.activeConnectionCount == 0 else { return }
+        exit(EXIT_SUCCESS)
+    }
+}
+
+private final class ConnectionLifecycleToken: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isClosed = false
+    private let onClose: () -> Void
+
+    init(onClose: @escaping () -> Void) {
+        self.onClose = onClose
+    }
+
+    func close() {
+        self.lock.lock()
+        guard !self.isClosed else {
+            self.lock.unlock()
+            return
+        }
+        self.isClosed = true
+        self.lock.unlock()
+        self.onClose()
+    }
 }
 
 private final class ProxyHelperListenerDelegate: NSObject, NSXPCListenerDelegate {
-    private let service = ProxyHelperService()
+    private let idleExitController: HelperIdleExitController
+
+    init(idleExitController: HelperIdleExitController) {
+        self.idleExitController = idleExitController
+    }
 
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection newConnection: NSXPCConnection) -> Bool {
+        let connectionLifecycle = self.idleExitController.connectionOpened()
+        newConnection.invalidationHandler = {
+            connectionLifecycle.close()
+        }
+        newConnection.interruptionHandler = {
+            connectionLifecycle.close()
+        }
         newConnection.exportedInterface = NSXPCInterface(with: ProxyHelperProtocol.self)
-        newConnection.exportedObject = self.service
+        newConnection.exportedObject = ProxyHelperService()
         newConnection.resume()
         return true
     }
@@ -517,11 +694,13 @@ private final class ProxyHelperListenerDelegate: NSObject, NSXPCListenerDelegate
 @main
 private struct ClashBarProxyHelperMain {
     static func main() {
-        let delegate = ProxyHelperListenerDelegate()
+        let idleExitController = HelperIdleExitController()
+        let delegate = ProxyHelperListenerDelegate(idleExitController: idleExitController)
         let listener = NSXPCListener(machServiceName: ProxyHelperConstants.machServiceName)
         listener.delegate = delegate
         listener.setConnectionCodeSigningRequirement(self.buildClientRequirement())
         listener.resume()
+        idleExitController.scheduleExitIfIdle()
         dispatchMain()
     }
 

@@ -72,7 +72,7 @@
 "ui.section.core_settings" = "内核设置";
 "ui.section.core_settings_remote" = "内核设置 (远程)";
 
-"ui.quick.switch_config" = "切换配置";
+"ui.quick.current_config" = "当前配置";
 "ui.quick.system_proxy" = "系统代理";
 "ui.quick.tun_mode" = "TUN 模式";
 "ui.quick.copy_terminal" = "复制终端命令";

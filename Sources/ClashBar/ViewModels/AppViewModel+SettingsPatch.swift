@@ -58,9 +58,12 @@ extension AppViewModel {
         settingsErrorMessage = nil
         settingsSavedMessage = nil
         defer { settingsSyncingKey = nil }
-        let shouldSyncSystemProxyPort = syncSystemProxyPort && !self.isRemoteTarget && body.keys.contains { key in
-            key == "mixed-port" || key == "port" || key == "socks-port"
-        }
+        let shouldSyncSystemProxyPort = Self.systemProxyFeatureEnabled
+            && syncSystemProxyPort
+            && !self.isRemoteTarget
+            && body.keys.contains { key in
+                key == "mixed-port" || key == "port" || key == "socks-port"
+            }
         let previousSystemProxyPorts =
             await previousSystemProxyPortsForSyncIfNeeded(shouldSync: shouldSyncSystemProxyPort)
 

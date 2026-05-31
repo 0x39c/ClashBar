@@ -3,7 +3,11 @@ import Foundation
 @MainActor
 extension AppViewModel {
     private var configDirectoryMonitorIntervalNanoseconds: UInt64 {
-        1_000_000_000
+        configRepository.availableConfigs.count <= 1 ? 5_000_000_000 : 1_000_000_000
+    }
+
+    private var configDirectoryFullRescanTickLimit: Int {
+        12
     }
 
     func startConfigDirectoryMonitoringIfNeeded() {
@@ -12,6 +16,7 @@ extension AppViewModel {
 
         _ = self.configRepository.reloadConfigs()
         self.configFileSignatureSnapshot = self.currentConfigFileSignatureSnapshot()
+        self.configDirectoryFullRescanTick = 0
 
         self.configDirectoryMonitorTask = Task { [weak self] in
             guard let self else { return }
@@ -30,6 +35,7 @@ extension AppViewModel {
         self.configDirectoryMonitorTask?.cancel()
         self.configDirectoryMonitorTask = nil
         self.configFileSignatureSnapshot = [:]
+        self.configDirectoryFullRescanTick = 0
         self.pendingConfigChangeRestart = false
     }
 
@@ -47,8 +53,13 @@ extension AppViewModel {
 
         guard self.ensureConfigDirectoryAvailable() != nil else { return }
 
+        if await self.handleSingleConfigFileChangeIfPossible() {
+            return
+        }
+
         let previousSelectedPath = self.configRepository.selectedConfig?.path
         _ = self.configRepository.reloadConfigs()
+        self.configDirectoryFullRescanTick = 0
         let currentSnapshot = self.currentConfigFileSignatureSnapshot()
 
         if self.configFileSignatureSnapshot.isEmpty {
@@ -73,7 +84,6 @@ extension AppViewModel {
         guard self.isRuntimeRunning else { return }
 
         if self.isCoreActionProcessing {
-            // Skip restart chaining for in-flight TUN operations; those already include a controlled restart.
             if !self.isTunSyncing {
                 self.pendingConfigChangeRestart = true
             }
@@ -81,6 +91,49 @@ extension AppViewModel {
         }
 
         await self.reloadConfigAfterFileChange()
+    }
+
+    private func handleSingleConfigFileChangeIfPossible() async -> Bool {
+        guard self.configRepository.availableConfigs.count <= 1,
+              let selectedConfig = self.configRepository.selectedConfig
+        else {
+            self.configDirectoryFullRescanTick = 0
+            return false
+        }
+
+        self.configDirectoryFullRescanTick += 1
+        if self.configDirectoryFullRescanTick >= self.configDirectoryFullRescanTickLimit {
+            self.configDirectoryFullRescanTick = 0
+            return false
+        }
+
+        guard FileManager.default.fileExists(atPath: selectedConfig.path) else { return false }
+
+        let currentSnapshot = self.currentConfigFileSignatureSnapshot()
+        guard !currentSnapshot.isEmpty else { return false }
+
+        if self.configFileSignatureSnapshot.isEmpty {
+            self.configFileSignatureSnapshot = currentSnapshot
+            return true
+        }
+
+        let changedFileNames = self.changedConfigFileNames(
+            previous: self.configFileSignatureSnapshot,
+            current: currentSnapshot)
+        guard !changedFileNames.isEmpty else { return true }
+
+        self.configFileSignatureSnapshot = currentSnapshot
+        guard changedFileNames.contains(selectedConfig.lastPathComponent), self.isRuntimeRunning else { return true }
+
+        if self.isCoreActionProcessing {
+            if !self.isTunSyncing {
+                self.pendingConfigChangeRestart = true
+            }
+            return true
+        }
+
+        await self.reloadConfigAfterFileChange()
+        return true
     }
 
     private func reloadConfigAfterFileChange() async {

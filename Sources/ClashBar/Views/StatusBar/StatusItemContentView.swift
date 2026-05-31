@@ -28,6 +28,8 @@ final class StatusItemContentView: NSView {
     private var currentDisplay: MenuBarDisplay?
     private var cachedUpLine: String = ""
     private var cachedDownLine: String = ""
+    private lazy var ruleBrandStatusIconImage: NSImage? = Self.makeBrandStatusIconImage(
+        source: BrandIcon.runProxyImage, size: brandIconRenderSize, insetRatio: 0.14)
     private lazy var runBrandStatusIconImage: NSImage? = Self.makeBrandStatusIconImage(
         source: BrandIcon.runProxyImage, size: brandIconRenderSize)
     private lazy var sleepBrandStatusIconImage: NSImage? = Self.makeBrandStatusIconImage(
@@ -39,7 +41,8 @@ final class StatusItemContentView: NSView {
     private static let brandIconRenderScales: [CGFloat] = [1, 2, 3]
 
     var usesBrandIcon: Bool {
-        self.runBrandStatusIconImage != nil ||
+        self.ruleBrandStatusIconImage != nil ||
+            self.runBrandStatusIconImage != nil ||
             self.sleepBrandStatusIconImage != nil ||
             self.globalBrandStatusIconImage != nil ||
             self.directBrandStatusIconImage != nil
@@ -183,7 +186,7 @@ final class StatusItemContentView: NSView {
         case "bolt.fill":
             return self.directBrandStatusIconImage ?? self.runBrandStatusIconImage
         default:
-            return self.runBrandStatusIconImage
+            return self.ruleBrandStatusIconImage ?? self.runBrandStatusIconImage
         }
     }
 
@@ -256,7 +259,11 @@ final class StatusItemContentView: NSView {
         return rep
     }
 
-    private static func makeBrandStatusIconImage(source: NSImage?, size: CGFloat) -> NSImage? {
+    private static func makeBrandStatusIconImage(
+        source: NSImage?,
+        size: CGFloat,
+        insetRatio: CGFloat = 0.18) -> NSImage?
+    {
         guard let source else { return nil }
         let targetSize = NSSize(width: size, height: size)
         let rendered = NSImage(size: targetSize)
@@ -265,6 +272,7 @@ final class StatusItemContentView: NSView {
             guard let representation = self.makeBrandStatusIconRepresentation(
                 source: source,
                 pointSize: targetSize,
+                insetRatio: insetRatio,
                 scale: scale)
             else {
                 continue
@@ -338,6 +346,7 @@ final class StatusItemContentView: NSView {
     private static func makeBrandStatusIconRepresentation(
         source: NSImage,
         pointSize: NSSize,
+        insetRatio: CGFloat,
         scale: CGFloat) -> NSBitmapImageRep?
     {
         let pixelWidth = max(1, Int((pointSize.width * scale).rounded(.up)))
@@ -365,7 +374,10 @@ final class StatusItemContentView: NSView {
         }
 
         let trimmedSourceRect = self.trimmedOpaqueRect(for: source)
-        let destinationRect = self.fittedBrandIconRect(sourceRect: trimmedSourceRect, pointSize: pointSize)
+        let destinationRect = self.fittedBrandIconRect(
+            sourceRect: trimmedSourceRect,
+            pointSize: pointSize,
+            insetRatio: insetRatio)
 
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context
@@ -384,12 +396,15 @@ final class StatusItemContentView: NSView {
         return representation
     }
 
-    private static func fittedBrandIconRect(sourceRect: NSRect, pointSize: NSSize) -> NSRect {
+    private static func fittedBrandIconRect(
+        sourceRect: NSRect,
+        pointSize: NSSize,
+        insetRatio: CGFloat) -> NSRect
+    {
         guard sourceRect.width > 0, sourceRect.height > 0 else {
             return NSRect(origin: .zero, size: pointSize)
         }
 
-        let insetRatio: CGFloat = 0.18
         let availableWidth = pointSize.width * (1 - insetRatio * 2)
         let availableHeight = pointSize.height * (1 - insetRatio * 2)
         let scale = min(availableWidth / sourceRect.width, availableHeight / sourceRect.height)

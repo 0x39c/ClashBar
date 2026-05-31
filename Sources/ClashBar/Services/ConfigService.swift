@@ -170,6 +170,22 @@ final class ConfigDirectoryManager {
         selectedConfig = files.first
         return files
     }
+
+    @discardableResult
+    func reloadConfigsIfChanged() -> Bool {
+        let previousFiles = self.availableConfigs.map { self.configIdentity($0) }
+        let previousSelected = self.selectedConfig.map { self.configIdentity($0) }
+
+        self.reloadConfigs()
+
+        let currentFiles = self.availableConfigs.map { self.configIdentity($0) }
+        let currentSelected = self.selectedConfig.map { self.configIdentity($0) }
+        return previousFiles != currentFiles || previousSelected != currentSelected
+    }
+
+    private func configIdentity(_ url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
+    }
 }
 
 // MARK: -
@@ -608,6 +624,11 @@ final class DefaultConfigRepository: ConfigRepository {
     @discardableResult
     func reloadConfigs() -> [URL] {
         self.configManager.reloadConfigs()
+    }
+
+    @discardableResult
+    func reloadConfigsIfChanged() -> Bool {
+        self.configManager.reloadConfigsIfChanged()
     }
 
     func writeConfigData(_ data: Data, to targetURL: URL) throws {

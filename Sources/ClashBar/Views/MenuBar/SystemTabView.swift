@@ -437,98 +437,100 @@ struct SystemTabView: TranslatingView {
                     }))
                     .disabled(syncingSettingsKey == AppViewModel.EditableCoreSetting.logLevel.id || !self.appViewModel.isControllerAccessEnabled)
                     .opacity(!self.appViewModel.isControllerAccessEnabled ? 0.62 : 1)
-                Button {
-                    self.isExceptionsExpanded.toggle()
-                } label: {
-                    HStack(spacing: T.space8) {
-                        self.settingsRowLabel(
-                            symbol: "arrowshape.turn.up.right.circle",
-                            title: systemProxyExceptionsTitle)
-                            .layoutPriority(1)
-                        Spacer(minLength: 0)
-                        HStack(spacing: T.space2) {
-                            let count = self.appViewModel.systemProxyExceptions.count
-                            if count > 0 {
-                                Text("\(count)")
-                                    .foregroundStyle(nativeSecondaryLabel)
-                                    .lineLimit(1)
+                if AppViewModel.systemProxyFeatureEnabled {
+                    Button {
+                        self.isExceptionsExpanded.toggle()
+                    } label: {
+                        HStack(spacing: T.space8) {
+                            self.settingsRowLabel(
+                                symbol: "arrowshape.turn.up.right.circle",
+                                title: systemProxyExceptionsTitle)
+                                .layoutPriority(1)
+                            Spacer(minLength: 0)
+                            HStack(spacing: T.space2) {
+                                let count = self.appViewModel.systemProxyExceptions.count
+                                if count > 0 {
+                                    Text("\(count)")
+                                        .foregroundStyle(nativeSecondaryLabel)
+                                        .lineLimit(1)
+                                }
+                                Image(systemName: "chevron.right")
+                                    .font(.app(size: T.FontSize.caption, weight: .semibold))
+                                    .foregroundStyle(nativeTertiaryLabel)
+                                    .rotationEffect(.degrees(self.isExceptionsExpanded ? 90 : 0))
                             }
-                            Image(systemName: "chevron.right")
-                                .font(.app(size: T.FontSize.caption, weight: .semibold))
-                                .foregroundStyle(nativeTertiaryLabel)
-                                .rotationEffect(.degrees(self.isExceptionsExpanded ? 90 : 0))
+                            .font(.app(size: T.FontSize.caption, weight: .medium))
                         }
-                        .font(.app(size: T.FontSize.caption, weight: .medium))
+                        .menuRowPadding(vertical: T.space4)
                     }
-                    .menuRowPadding(vertical: T.space4)
-                }
-                .buttonStyle(.plain)
+                    .buttonStyle(.plain)
 
-                VStack(alignment: .leading, spacing: T.space4) {
-                    Text(self.tr("ui.settings.system_proxy_exceptions_hint"))
-                        .font(.app(size: T.FontSize.caption, weight: .regular))
-                        .foregroundStyle(nativeSecondaryLabel)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    if self.appViewModel.systemProxyExceptions.isEmpty {
-                        Text(self.tr("ui.settings.system_proxy_exceptions_empty"))
-                            .font(.app(size: T.FontSize.body, weight: .regular))
+                    VStack(alignment: .leading, spacing: T.space4) {
+                        Text(self.tr("ui.settings.system_proxy_exceptions_hint"))
+                            .font(.app(size: T.FontSize.caption, weight: .regular))
                             .foregroundStyle(nativeSecondaryLabel)
-                    } else {
-                        VStack(alignment: .leading, spacing: T.space4) {
-                            ForEach(self.appViewModel.systemProxyExceptions) { item in
-                                self.systemProxyExceptionRow(item)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        if self.appViewModel.systemProxyExceptions.isEmpty {
+                            Text(self.tr("ui.settings.system_proxy_exceptions_empty"))
+                                .font(.app(size: T.FontSize.body, weight: .regular))
+                                .foregroundStyle(nativeSecondaryLabel)
+                        } else {
+                            VStack(alignment: .leading, spacing: T.space4) {
+                                ForEach(self.appViewModel.systemProxyExceptions) { item in
+                                    self.systemProxyExceptionRow(item)
+                                }
                             }
                         }
-                    }
 
-                    HStack(spacing: T.space4) {
-                        TextField(
-                            self.tr("ui.placeholder.system_proxy_exception"),
-                            text: self.$appViewModel.systemProxyNewException)
-                            .textFieldStyle(.roundedBorder)
-                            .controlSize(.small)
-                            .font(.app(size: T.FontSize.body, weight: .regular))
-                            .foregroundStyle(nativePrimaryLabel)
-                            .onSubmit {
+                        HStack(spacing: T.space4) {
+                            TextField(
+                                self.tr("ui.placeholder.system_proxy_exception"),
+                                text: self.$appViewModel.systemProxyNewException)
+                                .textFieldStyle(.roundedBorder)
+                                .controlSize(.small)
+                                .font(.app(size: T.FontSize.body, weight: .regular))
+                                .foregroundStyle(nativePrimaryLabel)
+                                .onSubmit {
+                                    self.appViewModel.addSystemProxyExceptionDraft()
+                                }
+
+                            Button(self.tr("ui.action.add_exception")) {
                                 self.appViewModel.addSystemProxyExceptionDraft()
                             }
-
-                        Button(self.tr("ui.action.add_exception")) {
-                            self.appViewModel.addSystemProxyExceptionDraft()
+                            .appBorderedButtonStyle()
+                            .controlSize(.small)
+                            .disabled(!self.appViewModel.canAddSystemProxyException || self
+                                .isSystemProxyExceptionsSyncing)
                         }
-                        .appBorderedButtonStyle()
-                        .controlSize(.small)
-                        .disabled(!self.appViewModel.canAddSystemProxyException || self
-                            .isSystemProxyExceptionsSyncing)
+
+                        HStack(spacing: T.space4) {
+                            Button {
+                                self.appViewModel.restoreDefaultSystemProxyExceptionsDraft()
+                            } label: {
+                                Label(self.tr("ui.action.restore_defaults"), systemImage: "arrow.counterclockwise")
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                            }
+                            .appBorderedButtonStyle()
+                            .controlSize(.small)
+                            .disabled(self.isSystemProxyExceptionsSyncing)
+
+                            Button {
+                                Task { await self.appViewModel.saveSystemProxyExceptions() }
+                            } label: {
+                                Label(self.tr("ui.action.save_exceptions"), systemImage: "checkmark.circle")
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                            }
+                            .appBorderedButtonStyle()
+                            .controlSize(.small)
+                            .disabled(self.isSystemProxyExceptionsSyncing)
+                        }
                     }
-
-                    HStack(spacing: T.space4) {
-                        Button {
-                            self.appViewModel.restoreDefaultSystemProxyExceptionsDraft()
-                        } label: {
-                            Label(self.tr("ui.action.restore_defaults"), systemImage: "arrow.counterclockwise")
-                                .frame(maxWidth: .infinity, alignment: .center)
-                        }
-                        .appBorderedButtonStyle()
-                        .controlSize(.small)
-                        .disabled(self.isSystemProxyExceptionsSyncing)
-
-                        Button {
-                            Task { await self.appViewModel.saveSystemProxyExceptions() }
-                        } label: {
-                            Label(self.tr("ui.action.save_exceptions"), systemImage: "checkmark.circle")
-                                .frame(maxWidth: .infinity, alignment: .center)
-                        }
-                        .appBorderedButtonStyle()
-                        .controlSize(.small)
-                        .disabled(self.isSystemProxyExceptionsSyncing)
-                    }
+                    .menuRowPadding(vertical: T.space4)
+                    .frame(maxHeight: self.isExceptionsExpanded ? .infinity : 0, alignment: .top)
+                    .clipped()
+                    .opacity(self.isExceptionsExpanded ? 1 : 0)
                 }
-                .menuRowPadding(vertical: T.space4)
-                .frame(maxHeight: self.isExceptionsExpanded ? .infinity : 0, alignment: .top)
-                .clipped()
-                .opacity(self.isExceptionsExpanded ? 1 : 0)
             }
             .simultaneousGesture(TapGesture().onEnded { self.endProxyPortEditing() })
             .animation(.spring(response: 0.30, dampingFraction: 0.80), value: self.isExceptionsExpanded)
