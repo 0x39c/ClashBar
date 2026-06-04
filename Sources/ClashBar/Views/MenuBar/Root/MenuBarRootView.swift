@@ -217,6 +217,7 @@ struct MenuBarRootView: TranslatingView {
     func tabContent(for tab: RootTab) -> some View {
         let content = self.tabBody(for: tab)
             .padding(.top, MenuBarLayoutTokens.space2)
+            .padding(.bottom, MenuBarLayoutTokens.space6)
 
         if self.tabUsesDynamicHeight(tab) {
             content.fixedSize(horizontal: false, vertical: true)

@@ -22,6 +22,10 @@ on:
           - minor
           - major
 
+concurrency:
+  group: 'release-dmg-${{ github.ref }}'
+  cancel-in-progress: false
+
 jobs:
   prepare-version:
     if: github.event_name != 'push' || github.actor != 'github-actions[bot]'
@@ -245,7 +249,6 @@ jobs:
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          chmod +x Scripts/generate_release_notes.sh
           Scripts/generate_release_notes.sh \
             "${{ needs.prepare-version.outputs.tag }}" \
             "${{ needs.prepare-version.outputs.version }}" \
@@ -257,7 +260,6 @@ jobs:
           tag_name: ${{ needs.prepare-version.outputs.tag }}
           name: ClashBar ${{ needs.prepare-version.outputs.version }}
           body_path: release.md
-          generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
             dist/*.dmg
@@ -289,8 +291,8 @@ jobs:
           INTEL_NO_CORE=$(fetch_sha "intel-no-core")
 
           for var in ARM_WITH_CORE ARM_NO_CORE INTEL_WITH_CORE INTEL_NO_CORE; do
-            if [[ -z "${!var}" ]]; then
-              echo "Failed to resolve checksum for ${var}" >&2
+            if [[ ! "${!var}" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "Invalid checksum for ${var}: '${!var}'" >&2
               exit 1
             fi
           done
@@ -307,8 +309,17 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [[ -z "${PAT_TOKEN:-}" ]]; then
+            echo "PAT_TOKEN secret is required to update Sitoi/homebrew-tap." >&2
+            exit 1
+          fi
+
           git clone "https://x-access-token:${PAT_TOKEN}@github.com/Sitoi/homebrew-tap.git" /tmp/homebrew-tap
           CASK_FILE="/tmp/homebrew-tap/Casks/clashbar.rb"
+          if [[ ! -f "$CASK_FILE" ]]; then
+            echo "Homebrew cask file not found: $CASK_FILE" >&2
+            exit 1
+          fi
 
           # Use Python to safely replace version and all 4 SHA values.
           # Cask SHA pattern (has_core branch):
@@ -325,23 +336,29 @@ jobs:
               content = f.read()
 
           # version
-          content = re.sub(r'version "[0-9.]+"', f'version "{version}"', content)
+          content, version_count = re.subn(r'version "[0-9.]+"', f'version "{version}"', content)
+          if version_count != 1:
+              raise SystemExit(f"Expected to update exactly 1 version entry, updated {version_count}.")
 
           sha = r'[0-9a-f]{64}'
 
           # on_arm block: has_core ? "<no-core>" \ : "<with-core>"
-          content = re.sub(
+          content, arm_count = re.subn(
               rf'(on_arm do\s+sha256 has_core \? ")({sha})(" \\\s+: ")({sha})(")',
               lambda m: m.group(1) + arm_no_core + m.group(3) + arm_with_core + m.group(5),
               content,
           )
+          if arm_count != 1:
+              raise SystemExit(f"Expected to update exactly 1 on_arm sha256 entry, updated {arm_count}.")
 
           # on_intel block
-          content = re.sub(
+          content, intel_count = re.subn(
               rf'(on_intel do\s+sha256 has_core \? ")({sha})(" \\\s+: ")({sha})(")',
               lambda m: m.group(1) + intel_no_core + m.group(3) + intel_with_core + m.group(5),
               content,
           )
+          if intel_count != 1:
+              raise SystemExit(f"Expected to update exactly 1 on_intel sha256 entry, updated {intel_count}.")
 
           with open(cask_file, 'w') as f:
               f.write(content)

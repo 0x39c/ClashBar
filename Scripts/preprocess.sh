@@ -2,6 +2,38 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+usage() {
+  cat <<'EOF'
+Usage: Scripts/preprocess.sh
+
+Prepare mihomo and app icon resources for packaging.
+
+Environment:
+  APP_NAME=...             App name used for generated icon naming.
+  TARGET_ARCH=...          Select mihomo asset architecture (arm64 or x86_64).
+  MIHOMO_REPO=...          GitHub repository for mihomo releases.
+  MIHOMO_VERSION=...       Explicit mihomo version; defaults to latest.
+  DOWNLOAD_MIHOMO=0        Do not download when local mihomo is missing.
+  REUSE_LOCAL_MIHOMO=0     Always download instead of reusing local mihomo.
+  PREPARE_MIHOMO_BINARY=0  Skip mihomo preparation.
+  PREPROCESS_DIR=...       Output directory for preprocessed resources.
+EOF
+}
+
+case "${1:-}" in
+  "")
+    ;;
+  -h | --help | help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "Unknown argument: $1" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
+
 APP_NAME="${APP_NAME:-ClashBar}"
 TARGET_ARCH="${TARGET_ARCH:-}"
 MIHOMO_REPO="${MIHOMO_REPO:-MetaCubeX/mihomo}"

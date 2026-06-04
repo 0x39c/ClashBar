@@ -2,6 +2,34 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+usage() {
+  cat <<'EOF'
+Usage: Scripts/make_dmg.sh
+
+Create a dmg from an existing dist/ClashBar.app.
+
+Environment:
+  APP_NAME=...        App name; defaults to ClashBar.
+  APP_VERSION=...     Version used in dmg filename.
+  DMG_SUFFIX=...      Optional dmg filename suffix.
+  DMG_VOLUME_NAME=... Optional mounted dmg volume name.
+EOF
+}
+
+case "${1:-}" in
+  "")
+    ;;
+  -h | --help | help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "Unknown argument: $1" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
+
 APP_NAME="${APP_NAME:-ClashBar}"
 APP_VERSION="${APP_VERSION:-0.1.0}"
 DMG_SUFFIX="${DMG_SUFFIX:-}"
@@ -18,7 +46,9 @@ DMG_SHA_PATH="${DMG_PATH}.sha256"
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/${APP_NAME}.dmg.XXXXXX")"
 
 cleanup() {
-  rm -rf "$STAGING_DIR"
+  if [ -n "$STAGING_DIR" ]; then
+    rm -rf "$STAGING_DIR"
+  fi
 }
 trap cleanup EXIT
 

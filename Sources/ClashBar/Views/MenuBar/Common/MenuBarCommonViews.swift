@@ -419,12 +419,27 @@ extension View {
         Capsule(style: .continuous).fill(self.nativeBadgeFill)
     }
 
+    func cleanContentCard(cornerRadius: CGFloat = MenuBarLayoutTokens.cardCornerRadius) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+
+        return self.background {
+            shape
+                .fill(self.nativeControlFill.opacity(self.isDarkAppearance ? 0.58 : 0.42))
+                .overlay {
+                    shape.stroke(
+                        self.nativeControlBorder.opacity(self.isDarkAppearance ? 0.42 : 0.16),
+                        lineWidth: MenuBarLayoutTokens.stroke)
+                }
+        }
+    }
+
     func emptyCard(_ text: String) -> some View {
         Text(text)
             .font(.app(size: MenuBarLayoutTokens.FontSize.body, weight: .regular))
             .foregroundStyle(self.nativeSecondaryLabel)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .menuRowPadding()
+            .cleanContentCard()
     }
 
     func fractionSummaryBadge(current: Int, total: Int) -> some View {

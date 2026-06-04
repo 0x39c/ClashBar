@@ -42,6 +42,8 @@ struct ConnectionsTabView: TranslatingView {
                         self.connectionRow(conn)
                     }
                 }
+                .menuRowPadding(vertical: MenuBarLayoutTokens.space2)
+                .cleanContentCard()
             }
         }
         .onAppear {
@@ -115,6 +117,7 @@ struct ConnectionsTabView: TranslatingView {
                 .foregroundStyle(nativePrimaryLabel)
         }
         .menuRowPadding(vertical: MenuBarLayoutTokens.space4)
+        .cleanContentCard()
     }
 
     var connectionsFilterMenu: some View {

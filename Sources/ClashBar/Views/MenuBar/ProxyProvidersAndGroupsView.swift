@@ -58,7 +58,7 @@ extension ProxyTabView {
             if providers.isEmpty {
                 emptyCard(tr("ui.empty.proxy_providers"))
             } else if !visible.isEmpty {
-                VStack(spacing: T.space2) {
+                VStack(spacing: T.space4) {
                     ForEach(visible, id: \.self) { name in
                         self.proxyProviderRow(name: name, detail: appViewModel.proxyProvidersDetail[name])
                             .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
@@ -67,6 +67,8 @@ extension ProxyTabView {
                 .clipped()
             }
         }
+        .menuRowPadding(vertical: T.space4)
+        .cleanContentCard()
     }
 
     func proxyProviderRow(name: String, detail: ProviderDetail?) -> some View {
@@ -83,7 +85,7 @@ extension ProxyTabView {
             let used = upload + download
             return min(max(Double(used) / Double(total), 0), 1)
         }()
-        let rowHorizontalPadding = T.space4
+        let rowHorizontalPadding = T.space6
         let isUpdating = appViewModel.providerUpdating.contains(name)
         let hovered = hoveredProviderName == name
         let isBindingEnabled = appViewModel.canBindProviderToSelectedLocalDefaultConfig
@@ -99,10 +101,15 @@ extension ProxyTabView {
             } label: {
                 VStack(alignment: .leading, spacing: T.space6) {
                     HStack(alignment: .center, spacing: T.space6) {
-                        Image(systemName: "externaldrive.fill")
-                            .font(.app(size: T.FontSize.caption, weight: .semibold))
-                            .foregroundStyle(nativeTeal.opacity(T.Opacity.solid))
-                            .frame(width: T.rowLeadingIcon, height: T.rowLeadingIcon)
+                        ZStack {
+                            Circle()
+                                .fill(self.providerRowIconBackground(isSelected: isSelected, hovered: hovered))
+                                .frame(width: 24, height: 24)
+
+                            Image(systemName: "externaldrive.fill")
+                                .font(.app(size: T.FontSize.caption, weight: .semibold))
+                                .foregroundStyle(isSelected ? nativeTeal.opacity(T.Opacity.solid) : nativeSecondaryLabel)
+                        }
 
                         HStack(alignment: .center, spacing: T.space4) {
                             HStack(alignment: .center, spacing: T.space4) {
@@ -160,7 +167,7 @@ extension ProxyTabView {
                                 .frame(height: T.space6)
                             }
                         }
-                        .padding(.leading, T.rowLeadingIcon + T.space6)
+                        .padding(.leading, 24 + T.space6)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -175,26 +182,38 @@ extension ProxyTabView {
                 Task { await appViewModel.updateProxyProvider(name: name) }
             } label: {
                 ZStack {
+                    Circle()
+                        .fill(isUpdating ? nativeTeal.opacity(T.Opacity.tint) : nativeBadgeFill)
+                        .frame(width: 24, height: 24)
+
                     Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.app(size: T.FontSize.caption, weight: .semibold))
                         .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(nativeSecondaryLabel)
+                        .foregroundStyle(hovered || isSelected ? nativeTeal.opacity(T.Opacity.solid) : nativeSecondaryLabel)
                         .opacity(isUpdating ? 0 : 1)
                     ProgressView()
                         .scaleEffect(0.5)
                         .opacity(isUpdating ? 1 : 0)
                 }
-                .frame(width: T.rowLeadingIcon, height: T.rowLeadingIcon)
+                .frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(tr("ui.action.refresh"))
         }
         .padding(.horizontal, rowHorizontalPadding)
         .padding(.vertical, T.space6)
-        .background(
-            RoundedRectangle(cornerRadius: T.cornerRadius, style: .continuous)
-                .fill(isSelected ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.34) : .clear))
-        .background(nativeHoverRowBackground(hovered))
+        .background {
+            self.providerRowBackground(isSelected: isSelected, hovered: hovered)
+        }
+        .overlay(alignment: .leading) {
+            if isSelected {
+                Capsule(style: .continuous)
+                    .fill(nativeTeal.opacity(T.Opacity.solid))
+                    .frame(width: 3)
+                    .padding(.vertical, T.space6)
+                    .padding(.leading, T.space2)
+            }
+        }
         .contentShape(Rectangle())
         .contextMenu {
             if isBindingEnabled {
@@ -209,6 +228,55 @@ extension ProxyTabView {
             current: hoveredProviderName,
             target: name,
             isHovering: $0) }
+    }
+
+    func providerRowIconBackground(isSelected: Bool, hovered: Bool) -> Color {
+        if isSelected {
+            return nativeTeal.opacity(isDarkAppearance ? 0.22 : 0.16)
+        }
+        if hovered {
+            return nativeHoverFill.opacity(isDarkAppearance ? 0.16 : 0.10)
+        }
+        return nativeBadgeFill
+    }
+
+    func providerRowBackground(isSelected: Bool, hovered: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: T.cornerRadius, style: .continuous)
+
+        return shape
+            .fill(self.providerRowFill(isSelected: isSelected, hovered: hovered))
+            .overlay(alignment: .topLeading) {
+                if isSelected {
+                    LinearGradient(
+                        colors: [nativeTeal.opacity(isDarkAppearance ? 0.10 : 0.06), .clear],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing)
+                        .clipShape(shape)
+                }
+            }
+            .overlay {
+                shape.stroke(
+                    isSelected
+                        ? nativeTeal.opacity(isDarkAppearance ? 0.46 : 0.34)
+                        : nativeControlBorder.opacity(hovered ? 0.42 : 0.28),
+                    lineWidth: T.stroke)
+            }
+            .shadow(
+                color: Color(nsColor: .shadowColor).opacity(isSelected ? (isDarkAppearance ? 0.20 : 0.10) : 0),
+                radius: isSelected ? 6 : 0,
+                x: 0,
+                y: isSelected ? 3 : 0)
+    }
+
+    func providerRowFill(isSelected: Bool, hovered: Bool) -> Color {
+        if isSelected {
+            return Color(nsColor: .selectedContentBackgroundColor).opacity(isDarkAppearance ? 0.20 : 0.12)
+        }
+        if hovered {
+            return nativeHoverFill.opacity(isDarkAppearance ? 0.14 : 0.08)
+        }
+        return Color(nsColor: isDarkAppearance ? .windowBackgroundColor : .controlBackgroundColor)
+            .opacity(isDarkAppearance ? 0.22 : 0.42)
     }
 
     enum ProviderAction {
@@ -311,6 +379,8 @@ extension ProxyTabView {
                 }
             }
         }
+        .menuRowPadding(vertical: T.space4)
+        .cleanContentCard()
     }
 
     func proxyGroupInlineRow(_ group: ProxyGroup) -> some View {

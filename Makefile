@@ -17,13 +17,14 @@ WITH_CORE ?= 0
 RELEASE_OPTIMIZE_FOR_SIZE ?= 1
 STRIP_BINARIES ?= 1
 
-.PHONY: help build dist dmg clean
+.PHONY: help format build dist dmg clean
 
 help:
 	@printf "%s\n" \
 		"ClashBar Makefile" \
 		"" \
 		"Targets:" \
+		"  make format       Run SwiftFormat and SwiftLint" \
 		"  make build        Build dist/$(APP_NAME).app (default: no core)" \
 		"  make dist         Build app + dmg (default: no core)" \
 		"  make dmg          Build dmg from existing dist/$(APP_NAME).app" \
@@ -36,10 +37,11 @@ help:
 		"  TARGET_ARCH=...   Pass through to Swift build/package scripts" \
 		"  APP_VERSION=...   Version used for Info.plist and dmg naming" \
 		"  BUILD_NUMBER=...  Build number used for Info.plist" \
-		"  DMG_SUFFIX=...    Optional dmg filename suffix"
+		"  DMG_SUFFIX=...    Optional dmg filename suffix" \
+		"  DMG_VOLUME_NAME=... Optional mounted dmg volume name"
 
 format:
-	swiftformat . --config .swiftformat 
+	swiftformat . --config .swiftformat
 	swiftlint lint --config .swiftlint.yml
 
 build:

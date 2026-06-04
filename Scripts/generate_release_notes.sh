@@ -2,8 +2,24 @@
 
 set -euo pipefail
 
-if [[ $# -lt 2 || $# -gt 3 ]]; then
+usage() {
   echo "Usage: $0 <tag> <version> [output_path]" >&2
+}
+
+case "${1:-}" in
+  -h | --help | help)
+    if [[ $# -ne 1 ]]; then
+      echo "Unexpected extra argument: $2" >&2
+      usage
+      exit 1
+    fi
+    usage
+    exit 0
+    ;;
+esac
+
+if [[ $# -lt 2 || $# -gt 3 ]]; then
+  usage
   exit 1
 fi
 
@@ -14,6 +30,11 @@ changelog_path="CHANGELOG.md"
 
 if [[ ! -f "$changelog_path" ]]; then
   echo "Missing $changelog_path" >&2
+  exit 1
+fi
+
+if [[ -z "${GITHUB_REPOSITORY:-}" ]]; then
+  echo "GITHUB_REPOSITORY is required" >&2
   exit 1
 fi
 

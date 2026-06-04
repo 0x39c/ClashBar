@@ -2,6 +2,43 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+usage() {
+  cat <<'EOF'
+Usage: Scripts/package_app.sh
+
+Build and package dist/ClashBar.app.
+
+Environment:
+  APP_NAME=...             App bundle display name.
+  BUNDLE_ID=...            App bundle identifier.
+  APP_VERSION=...          Version used for Info.plist.
+  BUILD_NUMBER=...         Build number used for Info.plist.
+  TARGET_ARCH=...          Pass --arch to Swift build.
+  BUNDLE_MIHOMO_BINARY=0   Build app without bundled mihomo.
+  REQUIRE_MIHOMO_BINARY=0  Allow packaging without a mihomo payload.
+  PREPROCESS_DIR=...       Directory containing preprocessed resources.
+  PREPROCESSED_ICON_PATH=... Custom preprocessed app icon path.
+  PREPROCESSED_MIHOMO_PATH=... Custom preprocessed mihomo path.
+  RELEASE_OPTIMIZE_FOR_SIZE=0  Disable -Osize for release build.
+  STRIP_BINARIES=0         Keep packaged binaries unstripped.
+  CODESIGN_IDENTITY=...    Codesign identity; defaults to ad-hoc.
+EOF
+}
+
+case "${1:-}" in
+  "")
+    ;;
+  -h | --help | help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "Unknown argument: $1" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
+
 APP_NAME="${APP_NAME:-ClashBar}"
 BUNDLE_ID="${BUNDLE_ID:-com.clashbar}"
 APP_VERSION="${APP_VERSION:-0.1.0}"
@@ -70,15 +107,15 @@ format_bytes() {
     BEGIN {
       split("B KiB MiB GiB TiB", units, " ")
       size = bytes + 0
-      index = 1
-      while (size >= 1024 && index < 5) {
+      unit_index = 1
+      while (size >= 1024 && unit_index < 5) {
         size /= 1024
-        index++
+        unit_index++
       }
-      if (index == 1) {
-        printf "%d %s", size, units[index]
+      if (unit_index == 1) {
+        printf "%d %s", size, units[unit_index]
       } else {
-        printf "%.1f %s", size, units[index]
+        printf "%.1f %s", size, units[unit_index]
       }
     }
   '
@@ -114,37 +151,71 @@ strip_binary_if_enabled() {
   echo "$label stripped: $(format_bytes "$before_bytes") -> $(format_bytes "$after_bytes")"
 }
 
-resolve_mihomo_install_path() {
+mihomo_candidate_paths() {
   local filename="${1:-mihomo}"
   local bundle_dir="$APP/Contents/Resources/ClashBar_ClashBar.bundle"
   local resources_dir="$APP/Contents/Resources"
-  local candidates=(
-    "$bundle_dir/$filename"
-    "$bundle_dir/bin/$filename"
-    "$bundle_dir/Resources/bin/$filename"
-    "$resources_dir/bin/$filename"
-    "$resources_dir/Resources/bin/$filename"
+
+  printf '%s\n' \
+    "$bundle_dir/$filename" \
+    "$bundle_dir/bin/$filename" \
+    "$bundle_dir/Resources/bin/$filename" \
+    "$resources_dir/bin/$filename" \
+    "$resources_dir/Resources/bin/$filename" \
     "$resources_dir/$filename"
-  )
+}
+
+resource_bundle_mihomo_candidate_paths() {
+  local filename="${1:-mihomo}"
+
+  printf '%s\n' \
+    "$RESOURCE_BUNDLE/$filename" \
+    "$RESOURCE_BUNDLE/bin/$filename" \
+    "$RESOURCE_BUNDLE/Resources/bin/$filename"
+}
+
+resolve_existing_file_from_candidates() {
   local path=""
 
-  for path in "${candidates[@]}"; do
+  while IFS= read -r path; do
     if [ -f "$path" ]; then
       echo "$path"
       return
     fi
   done
+}
 
-  for path in "${candidates[@]}"; do
+resolve_existing_mihomo_path() {
+  local filename="${1:-mihomo}"
+
+  mihomo_candidate_paths "$filename" | resolve_existing_file_from_candidates
+}
+
+resolve_existing_resource_bundle_mihomo_path() {
+  local filename="${1:-mihomo}"
+
+  resource_bundle_mihomo_candidate_paths "$filename" | resolve_existing_file_from_candidates
+}
+
+resolve_mihomo_install_path() {
+  local filename="${1:-mihomo}"
+  local path=""
+
+  path="$(resolve_existing_mihomo_path "$filename")"
+  if [ -n "$path" ]; then
+    echo "$path"
+    return
+  fi
+
+  while IFS= read -r path; do
     if [ -d "$(dirname "$path")" ]; then
       echo "$path"
       return
     fi
-  done
+  done < <(mihomo_candidate_paths "$filename")
 
-  echo "$bundle_dir/$filename"
+  echo "$APP/Contents/Resources/ClashBar_ClashBar.bundle/$filename"
 }
-
 remove_bundled_mihomo_candidates() {
   local filename="$1"
   local path=""
@@ -189,10 +260,8 @@ cp -R "$RESOURCE_BUNDLE" "$APP/Contents/Resources/ClashBar_ClashBar.bundle"
 if [ "$BUNDLE_MIHOMO_BINARY" = "1" ]; then
   if [ -f "$PREPROCESSED_MIHOMO_PATH" ]; then
     MIHOMO_SOURCE_PATH="$PREPROCESSED_MIHOMO_PATH"
-  elif [ -f "$(resolve_mihomo_install_path "mihomo")" ]; then
-    MIHOMO_SOURCE_PATH="$(resolve_mihomo_install_path "mihomo")"
   else
-    MIHOMO_SOURCE_PATH=""
+    MIHOMO_SOURCE_PATH="$(resolve_existing_resource_bundle_mihomo_path "mihomo")"
   fi
 
   if [ -n "$MIHOMO_SOURCE_PATH" ]; then

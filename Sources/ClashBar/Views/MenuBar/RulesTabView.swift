@@ -83,6 +83,7 @@ struct RulesTabView: TranslatingView {
                 }
             }
         }
+        .cleanContentCard()
         .onAppear { self.refreshData() }
         .onChange(of: self.appViewModel.ruleItems) { _ in self.refreshData() }
         .onChange(of: self.appViewModel.ruleProviders) { _ in self.refreshData() }

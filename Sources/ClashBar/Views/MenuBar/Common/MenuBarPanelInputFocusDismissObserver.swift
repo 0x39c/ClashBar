@@ -12,7 +12,7 @@ struct MenuBarPanelInputFocusDismissObserver: NSViewRepresentable {
         private var eventMonitor: EventMonitorToken?
 
         deinit {
-            self.removeEventMonitor()
+            self.eventMonitor?.remove()
         }
 
         override func viewDidMoveToWindow() {

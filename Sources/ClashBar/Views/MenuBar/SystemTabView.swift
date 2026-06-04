@@ -221,12 +221,43 @@ struct SystemTabView: TranslatingView {
             } icon: {
                 Image(systemName: symbol)
             }
+            .font(.app(size: T.FontSize.caption, weight: .semibold))
+            .foregroundStyle(self.maintenanceActionEnabled ? nativeSecondaryLabel : nativeTertiaryLabel)
+            .padding(.horizontal, T.space6)
+            .padding(.vertical, T.space4)
             .frame(maxWidth: .infinity, alignment: .center)
+            .background {
+                RoundedRectangle(cornerRadius: T.cornerRadius, style: .continuous)
+                    .fill(nativeBadgeFill)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: T.cornerRadius, style: .continuous)
+                            .stroke(nativeControlBorder.opacity(0.28), lineWidth: T.stroke)
+                    }
+            }
         }
-        .appBorderedButtonStyle()
-        .controlSize(.small)
+        .buttonStyle(.plain)
         .disabled(!self.maintenanceActionEnabled)
         .opacity(self.maintenanceActionEnabled ? 1 : 0.62)
+    }
+
+    func settingsInlineActionButton(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.app(size: T.FontSize.caption, weight: .semibold))
+                .foregroundStyle(nativeSecondaryLabel)
+                .padding(.horizontal, T.space6)
+                .padding(.vertical, T.space4)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .background {
+                    RoundedRectangle(cornerRadius: T.cornerRadius, style: .continuous)
+                        .fill(nativeBadgeFill)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: T.cornerRadius, style: .continuous)
+                                .stroke(nativeControlBorder.opacity(0.28), lineWidth: T.stroke)
+                        }
+                }
+        }
+        .buttonStyle(.plain)
     }
 
     func settingsFeedbackBanner(text: String, color: Color, symbol: String) -> some View {
@@ -534,6 +565,7 @@ struct SystemTabView: TranslatingView {
             }
             .simultaneousGesture(TapGesture().onEnded { self.endProxyPortEditing() })
             .animation(.spring(response: 0.30, dampingFraction: 0.80), value: self.isExceptionsExpanded)
+            .cleanContentCard()
 
             VStack(spacing: 0) {
                 self.settingsCardHeader(
@@ -549,6 +581,7 @@ struct SystemTabView: TranslatingView {
                 }
             }
             .simultaneousGesture(TapGesture().onEnded { self.endProxyPortEditing() })
+            .cleanContentCard()
 
             VStack(spacing: 0) {
                 Button {
@@ -589,6 +622,7 @@ struct SystemTabView: TranslatingView {
                 .opacity(self.appViewModel.isControllerAccessEnabled ? 1 : 0.62)
             }
             .animation(.spring(response: 0.30, dampingFraction: 0.80), value: self.isProxyPortsExpanded)
+            .cleanContentCard()
 
             VStack(spacing: 0) {
                 self.settingsCardHeader(
@@ -605,19 +639,15 @@ struct SystemTabView: TranslatingView {
                     }
 
                     HStack(spacing: T.space6) {
-                        Button {
+                        self.settingsInlineActionButton(self.tr("ui.action.open_core_directory"), symbol: "folder") {
                             self.appViewModel.showCoreDirectoryInFinder()
-                        } label: {
-                            Label(self.tr("ui.action.open_core_directory"), systemImage: "folder")
-                                .frame(maxWidth: .infinity, alignment: .center)
                         }
-                        .appBorderedButtonStyle()
-                        .controlSize(.small)
                     }
                 }
                 .menuRowPadding(vertical: T.space4)
             }
             .simultaneousGesture(TapGesture().onEnded { self.endProxyPortEditing() })
+            .cleanContentCard()
         }
         .overlay(alignment: .top) {
             if let feedback = settingsFeedbackState {

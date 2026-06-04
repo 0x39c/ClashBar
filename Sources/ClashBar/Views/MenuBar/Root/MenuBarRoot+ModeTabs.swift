@@ -40,11 +40,11 @@ extension MenuBarRootView {
         }
 
         func selectedFillOpacity(isDark: Bool) -> CGFloat {
-            self.isMode ? (isDark ? 0.10 : 0.045) : (isDark ? 0.22 : 0.12)
+            self.isMode ? (isDark ? 0.20 : 0.13) : (isDark ? 0.22 : 0.12)
         }
 
         func selectedBorderOpacity(isDark: Bool) -> CGFloat {
-            self.isMode ? (isDark ? 0.14 : 0.08) : (isDark ? 0.20 : 0.14)
+            self.isMode ? (isDark ? 0.36 : 0.26) : (isDark ? 0.20 : 0.14)
         }
 
         func hoverFillOpacity(isDark: Bool) -> CGFloat {
@@ -171,11 +171,7 @@ extension MenuBarRootView {
         }
         .padding(MenuBarLayoutTokens.space1)
         .frame(width: contentWidth)
-        .background(
-            AppMaterialSurface(
-                cornerRadius: SegmentedControlStyle.mode.cornerRadius,
-                fallbackStyle: .color(self.modeSwitcherBackgroundFill),
-                stroke: self.modeSwitcherBorderColor))
+        .cleanContentCard(cornerRadius: SegmentedControlStyle.mode.cornerRadius)
     }
 
     func modeSegmentButton(title: String, mode: CoreMode, symbol: String) -> some View {
@@ -321,15 +317,6 @@ extension MenuBarRootView {
         isDarkAppearance
             ? (style.isMode ? Color(red: 0.56, green: 0.77, blue: 0.98) : Color(red: 0.50, green: 0.72, blue: 0.95))
             : (style.isMode ? Color(red: 0.16, green: 0.36, blue: 0.67) : Color(red: 0.20, green: 0.40, blue: 0.71))
-    }
-
-    private var modeSwitcherBackgroundFill: Color {
-        Color(nsColor: self.isDarkAppearance ? .controlBackgroundColor : .windowBackgroundColor)
-            .opacity(self.isDarkAppearance ? 0.54 : 0.38)
-    }
-
-    private var modeSwitcherBorderColor: Color {
-        self.nativeControlBorder.opacity(self.isDarkAppearance ? 0.40 : 0.12)
     }
 
     private func segmentedSelectionFill(style: SegmentedControlStyle) -> Color {

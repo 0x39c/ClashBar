@@ -124,6 +124,7 @@ struct ProxyTabView: TranslatingView {
         }
         .frame(height: sparklineHeight)
         .padding(.top, T.space2)
+        .cleanContentCard()
     }
 
     func cornerMetric(
@@ -232,6 +233,8 @@ struct ProxyTabView: TranslatingView {
                 }
             }
         }
+        .menuRowPadding(vertical: T.space2)
+        .cleanContentCard()
     }
 
     func proxyCommandActionButton(

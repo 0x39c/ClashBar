@@ -19,6 +19,7 @@ enum MenuBarLayoutTokens {
 
     static let panelCornerRadius: CGFloat = 10
     static let cornerRadius: CGFloat = 6
+    static let cardCornerRadius: CGFloat = 8
 
     // MARK: - Row Heights
 

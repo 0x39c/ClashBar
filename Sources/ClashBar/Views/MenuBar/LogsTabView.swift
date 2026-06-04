@@ -73,6 +73,8 @@ struct LogsTabView: TranslatingView {
                             .padding(.vertical, T.space4)
                     }
                 }
+                .menuRowPadding(vertical: T.space2)
+                .cleanContentCard()
             }
         }
         .onAppear { self.refreshData() }
@@ -107,6 +109,7 @@ struct LogsTabView: TranslatingView {
                 .foregroundStyle(nativePrimaryLabel)
         }
         .menuRowPadding(vertical: T.space4)
+        .cleanContentCard()
     }
 
     var logsSecondaryControlRow: some View {
