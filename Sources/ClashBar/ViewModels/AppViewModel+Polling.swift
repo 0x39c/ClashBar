@@ -270,6 +270,18 @@ extension AppViewModel {
         self.clearTrafficPresentationHistory()
     }
 
+    func clearProxyPresentation() {
+        proxyGroups = []
+        groupLatencies = [:]
+        proxyHistoryLatestDelay = [:]
+        proxyNodeTypes = [:]
+        groupLatencyLoading = []
+        proxyLatencyTesting = []
+        providerProxyCount = 0
+        proxyProvidersDetail = [:]
+        providerUpdating = []
+    }
+
     func clearTrafficPresentationHistory() {
         displayUpTotal = 0
         displayDownTotal = 0
@@ -286,18 +298,12 @@ extension AppViewModel {
 
         memory = MemorySnapshot(inuse: 0)
 
-        proxyGroups.removeAll(keepingCapacity: false)
         groupLatencyLoading.removeAll(keepingCapacity: false)
         groupLatencies.removeAll(keepingCapacity: false)
         proxyLatencyTesting.removeAll(keepingCapacity: false)
-        proxyHistoryLatestDelay.removeAll(keepingCapacity: false)
-        proxyNodeTypes.removeAll(keepingCapacity: false)
 
-        providerProxyCount = 0
         providerRuleCount = 0
         rulesCount = 0
-        proxyProvidersDetail.removeAll(keepingCapacity: false)
-        providerUpdating.removeAll(keepingCapacity: false)
         ruleProviders.removeAll(keepingCapacity: false)
         ruleItems.removeAll(keepingCapacity: false)
     }
