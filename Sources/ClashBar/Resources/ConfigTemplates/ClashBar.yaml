@@ -1,274 +1,126 @@
-port: 0
-socks-port: 0
-redir-port: 0
+c1: &enableCheck
+  type: http
+  interval: 21600
+  header:
+    User-Agent:
+      - clash-verge/v2.4.7
+  health-check:
+    enable: true
+    url: https://dns.google/generate_204
+    expected-status: 204
+    interval: 120
+    timeout: 6000
+    max-failed-times: 2
+    lazy: false
+  override:
+    ip-version: dual
+
+c2: &disableCheck
+  << : *enableCheck
+  health-check:
+    enable: false
+
+proxy-providers:
+  test:
+    <<: *enableCheck
+    url: https://dns.google/generate_204
+
+usedProviders: &usedProviders
+  - "test"
+
+rules:
+  - GEOIP,PRIVATE,DIRECT,no-resolve
+  - RULE-SET,reject,REJECT
+  - GEOSITE,cn,DIRECT
+  - GEOIP,CN,DIRECT,no-resolve
+
+  - MATCH,正在使用
+
 mixed-port: 7890
-allow-lan: true
+
+allow-lan: false
 bind-address: '*'
 mode: rule
 log-level: info
 ipv6: false
+find-process-mode: always
 
-pr:
-  &a3 {
-    type: select,
+tun:
+  enable: true
+  stack: mixed
+  auto-route: true
+  auto-detect-interface: true
+  dns-hijack:
+    - any:53
+    - tcp://any:53
+  strict-route: true
+  mtu: 1500
+
+dns:
+  enable: true
+  cache-algorithm: arc
+  ipv6: false
+  prefer-h3: true
+  use-hosts: true
+  use-system-hosts: false
+  respect-rules: true
+  listen: 0.0.0.0:53
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.0/16
+  fake-ip-filter-mode: blacklist
+
+  direct-nameserver-follow-policy: true 
+  direct-nameserver:
+    - https://223.5.5.5/dns-query
+
+  proxy-server-nameserver:
+    - https://77.88.8.8/dns-query
+
+
+profile:
+  store-selected: true
+  store-fake-ip: true
+
+proxy-groups:
+
+  - name: 环大陆
+    type: url-test
+    use: *usedProviders
+    filter: "台湾|香港|澳门|俄罗斯|TW|HK"
+    exclude-type: "dns|direct"
+    empty-fallback: REJECT
+    url: https://dns.google/generate_204
+    tolerance: 200
+
+  - name: 就这样
+    type: url-test
+    use: *usedProviders
+    exclude-filter: "台湾|香港|澳门|俄罗斯|TW|HK"
+    exclude-type: "dns|direct"
+    empty-fallback: REJECT
+    url: https://dns.google/generate_204
+    tolerance: 200
+
+  - name: 正在使用
+    type: select
     proxies:
-      [
-        ♻️ 自动选择,
-        🚀 手动切换,
-        🇭🇰 香港节点,
-        🇨🇳 台湾节点,
-        🇺🇸 美国节点,
-        🇯🇵 日本节点,
-        🇪🇺 其他节点,
-        DIRECT,
-      ],
-    interval: 300,
-  }
-oa:
-  &a8 {
-    type: select,
-    proxies: [🇨🇳 台湾节点, 🇺🇸 美国节点, 🇯🇵 日本节点],
-    interval: 300,
-  }
-go:
-  &a9 {
-    type: select,
-    proxies: [DIRECT, 🇭🇰 香港节点, 🇨🇳 台湾节点],
-    interval: 300,
-  }
-re: &a10 { type: select, proxies: [REJECT], interval: 300 }
-p:
-  &a1 {
-    type: http,
-    interval: 21600,
-    health-check:
-      {
-        enable: true,
-        url: http://wifi.vivo.com.cn/generate_204,
-        interval: 300,
-      },
-  }
-auto: &a4 {
-    type: url-test,
-    # lazy: true,
-    url: http://cp.cloudflare.com,
-    interval: 300,
-    timeout: 3,
-    # tolerance: 100,
-    use: [proxy],
-  }
-use: &a2 { type: select, use: [proxy] }
-d: &a5 { type: http, behavior: domain, interval: 86400 }
-c: &a6 { type: http, behavior: classical, interval: 86400 }
-i: &a7 { type: http, behavior: ipcidr, interval: 86400 }
+      - 环大陆
+      - 就这样
+      
+  - name: GLOBAL
+    type: select
+    hidden: true
+    proxies:
+      - 正在使用
 
+rule-providers:
+  reject: 
+    type: http
+    interval: 86400
+    behavior: domain
+    url: https://fastly.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/reject.txt
+
+geodata-mode: true
 geox-url:
   geoip: 'https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat'
   geosite: 'https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat'
-  mmdb: 'https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb'
-  asn: 'https://github.com/xishang0128/geoip/releases/download/latest/GeoLite2-ASN.mmdb'
-
-proxy-providers:
-  proxy:
-    <<: *a1
-    url:
-    path: ./proxy/proxy.yaml
-
-proxy-groups:
-  - { name: 🚀 手动切换, <<: *a2 }
-  - { name: 🆎 AdBlock, <<: *a10 }
-  - { name: 🍎 苹果服务, <<: *a3 }
-  - { name: 💬 OpenAI, <<: *a8 }
-  - { name: 🤖 Cloudflare, <<: *a3 }
-  - { name: 🌌 谷歌服务, <<: *a3 }
-  - { name: Ⓜ️ 微软服务, <<: *a3 }
-  - { name: 👨🏻‍💻 GitHub, <<: *a3 }
-  - { name: 📟 国外社交, <<: *a3 }
-  - { name: 🎥 国外视频, <<: *a3 }
-  - { name: 🐟 漏网之鱼, <<: *a3 }
-
-  - { name: ♻️ 自动选择, <<: *a4 }
-  - { name: 🇭🇰 香港节点, <<: *a4, filter: '🇭🇰|HK|香港' }
-  - { name: 🇨🇳 台湾节点, <<: *a4, filter: '🇨🇳|TW|台湾' }
-  - { name: 🇺🇸 美国节点, <<: *a4, filter: '🇺🇸|US|美国' }
-  - { name: 🇯🇵 日本节点, <<: *a4, filter: '🇯🇵|JP|日本' }
-  - {
-      name: 🇪🇺 其他节点,
-      <<: *a4,
-      filter: '🇫🇷|FR|法国|🇩🇪|DE|德国|🇬🇧|UK|英国|🇸🇬|SG|新加',
-    }
-
-rule-providers:
-  Download:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Download/Download.yaml,
-      path: ./rule/Download.yaml,
-    }
-  Direct:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Direct/Direct.yaml,
-      path: ./rule/Direct.yaml,
-    }
-  Advertising:
-    {
-      <<: *a5,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/AdvertisingLite/AdvertisingLite.yaml,
-      path: ./rule/AdvertisingLite.yaml,
-    }
-  OpenAI:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/OpenAI/OpenAI.yaml,
-      path: ./rule/OpenAI.yaml,
-    }
-  BingAI:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Bing/Bing.yaml,
-      path: ./rule/BingAI.yaml,
-    }
-  BardAI:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/BardAI/BardAI.yaml,
-      path: ./rule/BardAI.yaml,
-    }
-  Gemini:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Gemini/Gemini.yaml,
-      path: ./rule/Gemini.yaml,
-    }
-  Apple:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Apple/Apple.yaml,
-      path: ./rule/Apple.yaml,
-    }
-  Cloudflare:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Cloudflare/Cloudflare.yaml,
-      path: ./rule/Cloudflare.yaml,
-    }
-  Discord:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Discord/Discord.yaml,
-      path: ./rule/Discord.yaml,
-    }
-  Github:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/GitHub/GitHub.yaml,
-      path: ./rule/Github.yaml,
-    }
-  Microsoft:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Microsoft/Microsoft.yaml,
-      path: ./rule/Microsoft.yaml,
-    }
-  Google:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Google/Google.yaml,
-      path: ./rule/Google.yaml,
-    }
-  Telegram:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Telegram/Telegram.yaml,
-      path: ./rule/Telegram.yaml,
-    }
-  Twitter:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Twitter/Twitter.yaml,
-      path: ./rule/Twitter.yaml,
-    }
-  Instagram:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Instagram/Instagram.yaml,
-      path: ./rule/Instagram.yaml,
-    }
-  YouTube:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/YouTube/YouTube.yaml,
-      path: ./rule/YouTube.yaml,
-    }
-  Netflix:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Netflix/Netflix.yaml,
-      path: ./rule/Netflix.yaml,
-    }
-  TencentVideo:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/TencentVideo/TencentVideo.yaml,
-      path: ./rule/TencentVideo.yaml,
-    }
-  ByteDance:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/ByteDance/ByteDance.yaml,
-      path: ./rule/ByteDance.yaml,
-    }
-  Lan:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Lan/Lan.yaml,
-      path: ./rule/Lan.yaml,
-    }
-  Proxy:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/Proxy/Proxy.yaml,
-      path: ./rule/Proxy.yaml,
-    }
-  China:
-    {
-      <<: *a6,
-      url: https://fastly.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Clash/China/China.yaml,
-      path: ./rule/China.yaml,
-    }
-
-rules:
-  - IP-CIDR,116.172.96.0/8,DIRECT
-  - IP-CIDR,121.37.69.0/8,DIRECT
-  - DOMAIN-SUFFIX,k8s.local,DIRECT
-  - DOMAIN-SUFFIX,lab.io,DIRECT
-  - DOMAIN-SUFFIX,acemap.cn,DIRECT
-  - DOMAIN-SUFFIX,oai.sitoi.cn,🐟 漏网之鱼
-
-  - RULE-SET,Download,DIRECT
-  - RULE-SET,Direct,DIRECT
-  - RULE-SET,Lan,DIRECT
-  - RULE-SET,TencentVideo,DIRECT
-
-  - RULE-SET,OpenAI,💬 OpenAI
-  - RULE-SET,ByteDance,💬 OpenAI
-  - RULE-SET,BingAI,💬 OpenAI
-  - RULE-SET,BardAI,💬 OpenAI
-  - RULE-SET,Gemini,💬 OpenAI
-  - RULE-SET,Advertising,🆎 AdBlock
-  - RULE-SET,Cloudflare,🤖 Cloudflare
-  - RULE-SET,Apple,🍎 苹果服务
-  - RULE-SET,Github,👨🏻‍💻 GitHub
-  - RULE-SET,Microsoft, Ⓜ️ 微软服务
-  - RULE-SET,Google,🌌 谷歌服务
-  - RULE-SET,Telegram,📟 国外社交
-  - RULE-SET,Discord,📟 国外社交
-  - RULE-SET,Twitter,📟 国外社交
-  - RULE-SET,Instagram,📟 国外社交
-  - RULE-SET,YouTube,🎥 国外视频
-  - RULE-SET,Netflix,🎥 国外视频
-  - RULE-SET,Proxy,🐟 漏网之鱼
-  - RULE-SET,China,DIRECT
-  - GEOIP,CN,DIRECT
-  - MATCH,🐟 漏网之鱼

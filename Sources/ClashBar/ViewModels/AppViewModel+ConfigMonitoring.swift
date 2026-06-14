@@ -10,13 +10,16 @@ extension AppViewModel {
         12
     }
 
-    func startConfigDirectoryMonitoringIfNeeded() {
-        guard self.configDirectoryMonitorTask == nil else { return }
+    func startConfigDirectoryMonitoringIfNeeded(duration: TimeInterval = 600) {
         guard self.ensureConfigDirectoryAvailable() != nil else { return }
 
         _ = self.configRepository.reloadConfigs()
         self.configFileSignatureSnapshot = self.currentConfigFileSignatureSnapshot()
         self.configDirectoryFullRescanTick = 0
+        self.pendingConfigChangeRestart = false
+        self.configDirectoryMonitorExpiresAt = Date().addingTimeInterval(duration)
+
+        guard self.configDirectoryMonitorTask == nil else { return }
 
         self.configDirectoryMonitorTask = Task { [weak self] in
             guard let self else { return }
@@ -37,10 +40,15 @@ extension AppViewModel {
         self.configFileSignatureSnapshot = [:]
         self.configDirectoryFullRescanTick = 0
         self.pendingConfigChangeRestart = false
+        self.configDirectoryMonitorExpiresAt = nil
     }
 
     private func handleConfigDirectoryChangesIfNeeded() async {
         guard !self.isRemoteTarget else { return }
+        if let expiresAt = self.configDirectoryMonitorExpiresAt, Date() >= expiresAt {
+            self.stopConfigDirectoryMonitoring()
+            return
+        }
 
         if self.pendingConfigChangeRestart,
            self.isRuntimeRunning,
@@ -138,11 +146,6 @@ extension AppViewModel {
 
     private func reloadConfigAfterFileChange() async {
         self.appendLog(level: "info", message: self.tr("log.config.changed_restart"))
-        proxyGroups = []
-        groupLatencies = [:]
-        proxyNodeTypes = [:]
-        groupLatencyLoading = []
-        proxyLatencyTesting = []
         cancelProviderRefresh(reason: "config switch requested")
         await self.reloadConfig()
         await self.refreshFromAPI(includeSlowCalls: true)

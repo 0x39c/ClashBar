@@ -183,7 +183,7 @@ extension AppViewModel {
     }
 
     private var localDefaultProviderListName: String {
-        "pp"
+        "usedProviders"
     }
 
     var isSelectedLocalDefaultConfig: Bool {
@@ -236,10 +236,14 @@ extension AppViewModel {
                 named: providerName,
                 toProviderListNamed: self.localDefaultProviderListName,
                 in: content)
-            guard updatedContent != content else { return }
+            guard updatedContent != content else {
+                self.selectedProxyProviderName = providerName
+                return
+            }
 
             try self.writeConfigData(Data(updatedContent.utf8), to: selectedURL)
             self.selectedProxyProviderName = providerName
+            await self.reloadCurrentConfigAfterInternalFileMutation(updatedFileNames: [selectedURL.lastPathComponent])
             self.appendLog(
                 level: "info",
                 message: tr("app.provider.bind.success", self.localDefaultProviderListName, providerName))
@@ -297,6 +301,7 @@ extension AppViewModel {
 
             guard updatedContent != content else { return }
             try self.writeConfigData(Data(updatedContent.utf8), to: selectedURL)
+            await self.reloadCurrentConfigAfterInternalFileMutation(updatedFileNames: [selectedURL.lastPathComponent])
         } catch {
             self.appendLog(level: "error", message: tr("app.provider.delete.failed", providerName, error.localizedDescription))
         }
@@ -336,6 +341,7 @@ extension AppViewModel {
             guard updatedContent != content else { return }
 
             try self.writeConfigData(Data(updatedContent.utf8), to: selectedURL)
+            await self.reloadCurrentConfigAfterInternalFileMutation(updatedFileNames: [selectedURL.lastPathComponent])
             self.appendLog(
                 level: "info",
                 message: tr("app.provider.add.success", providerName))
@@ -349,19 +355,19 @@ extension AppViewModel {
     private func promptProxyProviderInput() -> ProxyProviderInput? {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 94))
 
-        let nameLabel = NSTextField(labelWithString: tr("app.provider.add.name_label"))
-        nameLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        nameLabel.frame = NSRect(x: 0, y: 76, width: 340, height: 16)
-
-        let nameField = NSTextField(frame: NSRect(x: 0, y: 50, width: 340, height: 24))
-        nameField.placeholderString = tr("app.provider.add.name_placeholder")
-
         let urlLabel = NSTextField(labelWithString: tr("app.provider.add.url_label"))
         urlLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        urlLabel.frame = NSRect(x: 0, y: 28, width: 340, height: 16)
+        urlLabel.frame = NSRect(x: 0, y: 76, width: 340, height: 16)
 
-        let urlField = NSTextField(frame: NSRect(x: 0, y: 2, width: 258, height: 24))
+        let urlField = NSTextField(frame: NSRect(x: 0, y: 50, width: 340, height: 24))
         urlField.placeholderString = tr("app.provider.add.url_placeholder")
+
+        let nameLabel = NSTextField(labelWithString: tr("app.provider.add.name_label"))
+        nameLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        nameLabel.frame = NSRect(x: 0, y: 28, width: 340, height: 16)
+
+        let nameField = NSTextField(frame: NSRect(x: 0, y: 2, width: 258, height: 24))
+        nameField.placeholderString = tr("app.provider.add.name_placeholder")
 
         let autofillButton = ProxyProviderNameAutofillButton(title: tr("app.provider.add.fetch_name"), target: nil, action: nil)
         autofillButton.bezelStyle = .rounded
@@ -391,17 +397,20 @@ extension AppViewModel {
         autofillButton.target = autofillButton
         autofillButton.action = #selector(ProxyProviderNameAutofillButton.handleTap(_:))
 
-        container.addSubview(nameLabel)
-        container.addSubview(nameField)
         container.addSubview(urlLabel)
         container.addSubview(urlField)
         container.addSubview(autofillButton)
+        container.addSubview(nameLabel)
+        container.addSubview(nameField)
 
         let response = self.runModalAlert(
             style: .informational,
             message: tr("ui.action.add_proxy_provider"),
             informative: tr("app.provider.add.prompt"),
-            buttons: [tr("ui.action.add_exception"), tr("ui.action.cancel")]) { $0.accessoryView = container }
+            buttons: [tr("ui.action.add_exception"), tr("ui.action.cancel")]) {
+                $0.accessoryView = container
+                $0.window.initialFirstResponder = urlField
+            }
         guard response == .alertFirstButtonReturn else { return nil }
         return ProxyProviderInput(name: nameField.stringValue, url: urlField.stringValue)
     }
@@ -489,7 +498,9 @@ extension AppViewModel {
            let nextSelectedURL,
            previousCanonicalPath != nextCanonicalPath
         {
-            let validationFailure = await self.configValidationFailureDetails(configPath: nextSelectedURL.path)
+            let validationFailure = self.coreRepository.isRunning
+                ? nil
+                : await self.configValidationFailureDetails(configPath: nextSelectedURL.path)
             let currentCanonicalPath = self.configRepository.selectedConfig?.standardizedFileURL
                 .resolvingSymlinksInPath().path
             guard currentCanonicalPath == nextCanonicalPath else { return }
@@ -531,7 +542,9 @@ extension AppViewModel {
         if coreRepository.isRunning,
            previousCanonicalPath != targetCanonicalPath
         {
-            let validationFailure = await self.configValidationFailureDetails(configPath: matched.path)
+            let validationFailure = self.coreRepository.isRunning
+                ? nil
+                : await self.configValidationFailureDetails(configPath: matched.path)
             let currentCanonicalPath = self.configRepository.selectedConfig?.standardizedFileURL
                 .resolvingSymlinksInPath().path
             // Validation runs before selecting `matched`, so stale-check against the original selection.

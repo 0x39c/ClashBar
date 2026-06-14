@@ -97,7 +97,6 @@ extension AppViewModel {
                 }
             }
 
-            self.startConfigDirectoryMonitoringIfNeeded()
         }
         if startBackgroundRefresh, self.autoStartCore {
             if !self.shouldDeferAutoStartForMissingManagedCore() {

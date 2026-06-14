@@ -50,6 +50,8 @@ struct MenuBarRootView: TranslatingView {
     @Environment(\.colorScheme) var colorScheme
 
     @StateObject var rootViewModel = ProxyGroupsViewModel()
+    @StateObject var connectionsViewModel = ConnectionsViewModel()
+    @StateObject var logsViewModel = LogsViewModel()
     @Namespace var segmentedSelectionNamespace
 
     @State var switchingMode: CoreMode?
@@ -184,9 +186,9 @@ struct MenuBarRootView: TranslatingView {
         case .rules:
             RulesTabView()
         case .connections:
-            ConnectionsTabView()
+            ConnectionsTabView(viewModel: self.connectionsViewModel)
         case .logs:
-            LogsTabView()
+            LogsTabView(viewModel: self.logsViewModel)
         case .system:
             SystemTabView()
         }

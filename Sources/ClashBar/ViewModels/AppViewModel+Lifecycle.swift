@@ -66,7 +66,7 @@ extension AppViewModel {
                     refreshProxyGroupsAfterBootstrap: false,
                     refreshSystemProxyBeforeOverlay: true,
                     refreshSystemProxyAfterBootstrap: false,
-                    autoTestGroupLatencies: true))
+                    autoTestGroupLatencies: !didAutoTestGroupLatenciesAfterFirstCoreStart))
         } catch {
             preserveLocalSettingsOnNextSync = false
             let message = tr("log.start.failed", self.coreErrorMessage(error))
@@ -128,7 +128,7 @@ extension AppViewModel {
                 return
             }
 
-            guard await self.validateConfigBeforeCoreLaunch(configPath: configPath) else {
+            guard await self.validateConfigBeforeCoreLaunchIfIdle(configPath: configPath) else {
                 preserveLocalSettingsOnNextSync = false
                 return
             }
@@ -278,6 +278,12 @@ extension AppViewModel {
         return false
     }
 
+    @discardableResult
+    func validateConfigBeforeCoreLaunchIfIdle(configPath: String) async -> Bool {
+        guard !self.coreRepository.isRunning else { return true }
+        return await self.validateConfigBeforeCoreLaunch(configPath: configPath)
+    }
+
     func configValidationFailureDetails(configPath: String) async -> String? {
         do {
             try await self.coreRepository.validateConfig(configPath: configPath)
@@ -387,6 +393,7 @@ extension AppViewModel {
         await refreshFromAPI(includeSlowCalls: false)
 
         if options.autoTestGroupLatencies {
+            didAutoTestGroupLatenciesAfterFirstCoreStart = true
             Task { [weak self] in
                 await self?.refreshAllGroupLatencies()
             }

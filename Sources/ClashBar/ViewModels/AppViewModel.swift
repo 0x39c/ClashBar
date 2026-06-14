@@ -439,6 +439,7 @@ final class AppViewModel: ObservableObject {
     var configFileSignatureSnapshot: [String: String] = [:]
     var configDirectoryFullRescanTick = 0
     var pendingConfigChangeRestart = false
+    var configDirectoryMonitorExpiresAt: Date?
     var isLatestAppReleaseCheckInFlight = false
 
     let defaults = UserDefaults.standard
@@ -482,12 +483,11 @@ final class AppViewModel: ObservableObject {
     var clashbarLogStore: AppLogStore?
     var mihomoLogStore: AppLogStore?
     var didAttemptAutoStart = false
+    var didAutoTestGroupLatenciesAfterFirstCoreStart = false
     var didCheckSystemProxyConsistencyOnLaunch = false
     var lastCoreFailureAlertKey: String?
     var lastCoreFailureAlertAt: Date?
     let coreFailureAlertThrottleInterval: TimeInterval = 20
-    var lastProxyAutoLatencyRefreshAt: Date?
-    let proxyAutoLatencyRefreshThrottleInterval: TimeInterval = 60
     var networkReachabilityStatus: NetworkReachabilityStatus = .unknown
     var shouldResumeCoreAfterNetworkRecovery = false
     var isNetworkReachabilityMonitoring = false

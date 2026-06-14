@@ -184,6 +184,7 @@ extension AppViewModel {
 
     func showSelectedConfigInFinder() {
         guard let configDirectory = ensureConfigDirectoryAvailable() else { return }
+        self.startConfigDirectoryMonitoringIfNeeded()
         if let selected = configRepository.selectedConfig, FileManager.default.fileExists(atPath: selected.path) {
             NSWorkspace.shared.activateFileViewerSelecting([selected])
             return
@@ -352,6 +353,16 @@ extension AppViewModel {
             self.refreshSelectedProxyProviderName()
             self.refreshRemoteConfigMenuStates()
         }
+    }
+
+    func reloadCurrentConfigAfterInternalFileMutation(updatedFileNames: Set<String>) async {
+        self.refreshConfigStateAfterMutation()
+        self.configFileSignatureSnapshot = [:]
+        guard self.shouldAutoReloadCurrentConfig(updatedFileNames: updatedFileNames) else { return }
+
+        cancelProviderRefresh(reason: "config switch requested")
+        await self.reloadConfig()
+        await self.refreshFromAPI(includeSlowCalls: true)
     }
 
     @discardableResult

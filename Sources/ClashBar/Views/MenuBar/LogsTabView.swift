@@ -55,7 +55,7 @@ private struct LogFilterGroupConfiguration<Item: Hashable> {
 
 struct LogsTabView: TranslatingView {
     @EnvironmentObject var appViewModel: AppViewModel
-    @StateObject private var viewModel = LogsViewModel()
+    @ObservedObject var viewModel: LogsViewModel
 
     var body: some View {
         let logs = self.viewModel.visibleLogs

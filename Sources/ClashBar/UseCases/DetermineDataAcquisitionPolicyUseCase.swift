@@ -33,7 +33,7 @@ struct DetermineDataAcquisitionPolicyUseCase {
             input.foregroundLowFrequencyOtherTabsIntervalNanoseconds
         }
 
-        let memoryEnabled = input.activeTab == .proxy
+        let memoryEnabled = true
         let connectionsEnabled = input.activeTab == .proxy || input.activeTab == .connections
         let logsEnabled = input.activeTab == .logs
 

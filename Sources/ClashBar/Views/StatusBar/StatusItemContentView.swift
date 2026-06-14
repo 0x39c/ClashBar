@@ -29,9 +29,9 @@ final class StatusItemContentView: NSView {
     private var cachedUpLine: String = ""
     private var cachedDownLine: String = ""
     private lazy var ruleBrandStatusIconImage: NSImage? = Self.makeBrandStatusIconImage(
-        source: BrandIcon.runProxyImage, size: brandIconRenderSize, insetRatio: 0.14)
+        source: BrandIcon.runProxyImage, size: brandIconRenderSize, insetRatio: 0.14, preservesSourceCanvas: true)
     private lazy var runBrandStatusIconImage: NSImage? = Self.makeBrandStatusIconImage(
-        source: BrandIcon.runProxyImage, size: brandIconRenderSize)
+        source: BrandIcon.runProxyImage, size: brandIconRenderSize, preservesSourceCanvas: true)
     private lazy var sleepBrandStatusIconImage: NSImage? = Self.makeBrandStatusIconImage(
         source: BrandIcon.sleepImage, size: brandIconRenderSize)
     private lazy var globalBrandStatusIconImage: NSImage? = Self.makeGlyphStatusIconImage(
@@ -262,7 +262,8 @@ final class StatusItemContentView: NSView {
     private static func makeBrandStatusIconImage(
         source: NSImage?,
         size: CGFloat,
-        insetRatio: CGFloat = 0.18) -> NSImage?
+        insetRatio: CGFloat = 0.18,
+        preservesSourceCanvas: Bool = false) -> NSImage?
     {
         guard let source else { return nil }
         let targetSize = NSSize(width: size, height: size)
@@ -273,6 +274,7 @@ final class StatusItemContentView: NSView {
                 source: source,
                 pointSize: targetSize,
                 insetRatio: insetRatio,
+                preservesSourceCanvas: preservesSourceCanvas,
                 scale: scale)
             else {
                 continue
@@ -347,6 +349,7 @@ final class StatusItemContentView: NSView {
         source: NSImage,
         pointSize: NSSize,
         insetRatio: CGFloat,
+        preservesSourceCanvas: Bool,
         scale: CGFloat) -> NSBitmapImageRep?
     {
         let pixelWidth = max(1, Int((pointSize.width * scale).rounded(.up)))
@@ -373,9 +376,11 @@ final class StatusItemContentView: NSView {
             return nil
         }
 
-        let trimmedSourceRect = self.trimmedOpaqueRect(for: source)
+        let sourceRect = preservesSourceCanvas
+            ? NSRect(origin: .zero, size: source.size)
+            : self.trimmedOpaqueRect(for: source)
         let destinationRect = self.fittedBrandIconRect(
-            sourceRect: trimmedSourceRect,
+            sourceRect: sourceRect,
             pointSize: pointSize,
             insetRatio: insetRatio)
 
@@ -384,7 +389,7 @@ final class StatusItemContentView: NSView {
         context.imageInterpolation = .high
         source.draw(
             in: destinationRect,
-            from: trimmedSourceRect,
+            from: sourceRect,
             operation: .copy,
             fraction: 1.0,
             respectFlipped: true,

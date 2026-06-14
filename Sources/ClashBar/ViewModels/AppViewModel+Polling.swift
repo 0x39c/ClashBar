@@ -101,6 +101,7 @@ extension AppViewModel {
         self.updateDataAcquisitionPolicy()
 
         guard presented else { return }
+        self.refreshSelectedProxyProviderName()
         self.flushPendingTrafficSnapshotIfNeeded(immediately: true)
         self.scheduleRefreshForActivatedTab(activeMenuTab)
         Task { [weak self] in
@@ -186,14 +187,6 @@ extension AppViewModel {
             if proxyProvidersDetail.isEmpty || ruleItems.isEmpty {
                 await refreshProvidersAndRules()
                 guard shouldContinueRefresh() else { return }
-            }
-
-            let now = Date()
-            if self.lastProxyAutoLatencyRefreshAt == nil ||
-                now.timeIntervalSince(self.lastProxyAutoLatencyRefreshAt!) >= self.proxyAutoLatencyRefreshThrottleInterval
-            {
-                self.lastProxyAutoLatencyRefreshAt = now
-                await self.refreshAllGroupLatencies()
             }
         case .rules:
             await refreshProvidersAndRules()
@@ -296,8 +289,6 @@ extension AppViewModel {
         connectionsStore.connectionsCount = 0
         connectionsStore.connections.removeAll(keepingCapacity: false)
 
-        memory = MemorySnapshot(inuse: 0)
-
         groupLatencyLoading.removeAll(keepingCapacity: false)
         groupLatencies.removeAll(keepingCapacity: false)
         proxyLatencyTesting.removeAll(keepingCapacity: false)
@@ -392,6 +383,7 @@ extension AppViewModel {
         self.proxyGroups = presentation.groups
         self.proxyHistoryLatestDelay = presentation.history
         self.proxyNodeTypes = presentation.nodeTypes
+        self.refreshSelectedProxyProviderName()
         self.autoFixGroupsPointingToHiddenNodes(presentation.groups)
     }
 

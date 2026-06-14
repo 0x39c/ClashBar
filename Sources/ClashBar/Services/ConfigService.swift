@@ -297,6 +297,7 @@ struct LocalProxyProviderBindingMutator {
     enum MutationError: LocalizedError {
         case providerListNotFound(String)
         case providerListEmpty(String)
+        case providersSectionNotFound
 
         var errorDescription: String? {
             switch self {
@@ -304,6 +305,8 @@ struct LocalProxyProviderBindingMutator {
                 providerMutationText("app.provider.error.provider_list_not_found", name)
             case let .providerListEmpty(name):
                 providerMutationText("app.provider.error.provider_list_empty", name)
+            case .providersSectionNotFound:
+                providerMutationText("app.provider.error.providers_section_not_found")
             }
         }
     }
@@ -321,6 +324,12 @@ struct LocalProxyProviderBindingMutator {
         for removalIndex in binding.itemIndices.dropFirst().reversed() {
             lines.remove(at: removalIndex)
         }
+
+        try self.setProviderHealthCheckInheritance(
+            enabledProviderName: providerName,
+            enabledAlias: "enableCheck",
+            disabledAlias: "disableCheck",
+            in: &lines)
 
         let updated = lines.joined(separator: "\n")
         return originalNewline == "\n"
@@ -403,6 +412,51 @@ struct LocalProxyProviderBindingMutator {
     private func yamlDoubleQuoted(_ value: String) -> String {
         Self.yamlDoubleQuoted(value)
     }
+
+    private func setProviderHealthCheckInheritance(
+        enabledProviderName: String,
+        enabledAlias: String,
+        disabledAlias: String,
+        in lines: inout [String]) throws
+    {
+        let section = try Self.proxyProvidersSection(in: lines)
+
+        for headerIndex in section.itemHeaders {
+            guard let providerName = Self.mappingKey(from: lines[headerIndex], allowCommented: false) else { continue }
+            let alias = providerName == enabledProviderName ? enabledAlias : disabledAlias
+            self.upsertMergeAlias(
+                alias,
+                afterProviderHeaderAt: headerIndex,
+                nextProviderHeaderIndex: section.nextHeaderIndex(after: headerIndex),
+                itemIndent: section.itemIndent,
+                in: &lines)
+        }
+    }
+
+    private func upsertMergeAlias(
+        _ alias: String,
+        afterProviderHeaderAt headerIndex: Int,
+        nextProviderHeaderIndex: Int,
+        itemIndent: Int,
+        in lines: inout [String])
+    {
+        let nestedIndent = itemIndent + 2
+        let replacementLine = "\(String(repeating: " ", count: nestedIndent))<<: *\(alias)"
+        let searchRange = (headerIndex + 1)..<nextProviderHeaderIndex
+
+        if let mergeIndex = searchRange.first(where: { self.isMergeAliasLine(lines[$0], nestedIndent: nestedIndent) }) {
+            lines[mergeIndex] = replacementLine
+            return
+        }
+
+        lines.insert(replacementLine, at: headerIndex + 1)
+    }
+
+    private func isMergeAliasLine(_ line: String, nestedIndent: Int) -> Bool {
+        guard Self.leadingWhitespaceCount(of: line) == nestedIndent else { return false }
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix("<<:")
+    }
 }
 
 struct LocalProxyProviderDefinitionMutator {
@@ -445,7 +499,7 @@ struct LocalProxyProviderDefinitionMutator {
         let nestedIndent = String(repeating: " ", count: section.itemIndent + 2)
         let newBlock = [
             "\(indent)\(LocalProxyProviderBindingMutator.yamlDoubleQuoted(providerName)):",
-            "\(nestedIndent)<<: *a1",
+            "\(nestedIndent)<<: *enableCheck",
             "\(nestedIndent)url: \(LocalProxyProviderBindingMutator.yamlDoubleQuoted(url))",
             "\(nestedIndent)path: \(path)",
         ]
@@ -479,42 +533,26 @@ struct LocalProxyProviderDefinitionMutator {
             : updated.replacingOccurrences(of: "\n", with: originalNewline)
     }
 
-    private func providersSection(in lines: [String]) throws -> (itemIndent: Int, itemHeaders: [Int], sectionEndIndex: Int) {
-        guard let headerIndex = lines.firstIndex(where: { LocalProxyProviderBindingMutator.isProxyProvidersHeader($0) }) else {
+    private func providersSection(in lines: [String]) throws -> LocalProxyProviderBindingMutator.ProxyProvidersSection {
+        do {
+            return try LocalProxyProviderBindingMutator.proxyProvidersSection(in: lines)
+        } catch {
             throw MutationError.providersSectionNotFound
         }
-
-        let headerIndent = LocalProxyProviderBindingMutator.leadingWhitespaceCount(of: lines[headerIndex])
-        let itemIndent = headerIndent + 2
-        var index = headerIndex + 1
-        var itemHeaders: [Int] = []
-
-        while index < lines.count {
-            let line = lines[index]
-            let trimmed = line.trimmingCharacters(in: CharacterSet.whitespaces)
-            if trimmed.isEmpty {
-                index += 1
-                continue
-            }
-
-            let indent = LocalProxyProviderBindingMutator.leadingWhitespaceCount(of: line)
-            if indent <= headerIndent, !trimmed.hasPrefix("#") {
-                break
-            }
-
-            if indent == itemIndent,
-               LocalProxyProviderBindingMutator.mappingKey(from: line, allowCommented: false) != nil
-            {
-                itemHeaders.append(index)
-            }
-            index += 1
-        }
-
-        return (itemIndent: itemIndent, itemHeaders: itemHeaders, sectionEndIndex: index)
     }
 }
 
-private extension LocalProxyProviderBindingMutator {
+fileprivate extension LocalProxyProviderBindingMutator {
+    struct ProxyProvidersSection {
+        let itemIndent: Int
+        let itemHeaders: [Int]
+        let sectionEndIndex: Int
+
+        func nextHeaderIndex(after headerIndex: Int) -> Int {
+            itemHeaders.first(where: { $0 > headerIndex }) ?? sectionEndIndex
+        }
+    }
+
     static func leadingWhitespaceCount(of line: String) -> Int {
         line.prefix { $0 == " " || $0 == "\t" }.count
     }
@@ -581,6 +619,43 @@ private extension LocalProxyProviderBindingMutator {
         guard let separatorIndex = trimmed.firstIndex(of: ":") else { return false }
         let key = trimmed[..<separatorIndex].trimmingCharacters(in: .whitespaces)
         return key == "proxy-providers"
+    }
+
+    static func proxyProvidersSection(in lines: [String]) throws -> ProxyProvidersSection {
+        guard let headerIndex = lines.firstIndex(where: { Self.isProxyProvidersHeader($0) }) else {
+            throw MutationError.providersSectionNotFound
+        }
+
+        let headerIndent = Self.leadingWhitespaceCount(of: lines[headerIndex])
+        let itemIndent = headerIndent + 2
+        var index = headerIndex + 1
+        var itemHeaders: [Int] = []
+
+        while index < lines.count {
+            let line = lines[index]
+            let trimmed = line.trimmingCharacters(in: CharacterSet.whitespaces)
+            if trimmed.isEmpty {
+                index += 1
+                continue
+            }
+
+            let indent = Self.leadingWhitespaceCount(of: line)
+            if indent <= headerIndent, !trimmed.hasPrefix("#") {
+                break
+            }
+
+            if indent == itemIndent,
+               Self.mappingKey(from: line, allowCommented: false) != nil
+            {
+                itemHeaders.append(index)
+            }
+            index += 1
+        }
+
+        return ProxyProvidersSection(
+            itemIndent: itemIndent,
+            itemHeaders: itemHeaders,
+            sectionEndIndex: index)
     }
 }
 

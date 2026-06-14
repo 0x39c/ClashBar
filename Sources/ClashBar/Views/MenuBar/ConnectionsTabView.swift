@@ -8,7 +8,7 @@ struct ConnectionsTabView: TranslatingView {
         ConnectionsTransportFilter.all.rawValue
     @AppStorage("clashbar.connections.sort_option") private var storedSortOptionRawValue =
         ConnectionsSortOption.default.rawValue
-    @StateObject private var viewModel = ConnectionsViewModel()
+    @ObservedObject var viewModel: ConnectionsViewModel
 
     private enum ConnectionsLayout {
         static let topLineSpacing: CGFloat = MenuBarLayoutTokens.space2
