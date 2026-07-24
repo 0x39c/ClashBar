@@ -1,6 +1,9 @@
 import Foundation
 
 struct DetermineDataAcquisitionPolicyUseCase {
+    private static let foregroundConnectionsIntervalMilliseconds = 1000
+    private static let backgroundConnectionsIntervalMilliseconds = 5000
+
     struct Input {
         let panelPresented: Bool
         let activeTab: RootTab
@@ -19,8 +22,8 @@ struct DetermineDataAcquisitionPolicyUseCase {
             return DataAcquisitionPolicy(
                 enableTrafficStream: trafficEnabled,
                 enableMemoryStream: false,
-                enableConnectionsStream: false,
-                connectionsIntervalMilliseconds: nil,
+                enableConnectionsStream: true,
+                connectionsIntervalMilliseconds: Self.backgroundConnectionsIntervalMilliseconds,
                 enableLogsStream: false,
                 mediumFrequencyIntervalNanoseconds: input.backgroundMediumFrequencyIntervalNanoseconds,
                 lowFrequencyIntervalNanoseconds: input.backgroundLowFrequencyIntervalNanoseconds)
@@ -34,14 +37,16 @@ struct DetermineDataAcquisitionPolicyUseCase {
         }
 
         let memoryEnabled = true
-        let connectionsEnabled = input.activeTab == .proxy || input.activeTab == .connections
+        let connectionsFocused = input.activeTab == .proxy || input.activeTab == .connections
         let logsEnabled = input.activeTab == .logs
 
         return DataAcquisitionPolicy(
             enableTrafficStream: trafficEnabled,
             enableMemoryStream: memoryEnabled,
-            enableConnectionsStream: connectionsEnabled,
-            connectionsIntervalMilliseconds: connectionsEnabled ? 1000 : nil,
+            enableConnectionsStream: true,
+            connectionsIntervalMilliseconds: connectionsFocused
+                ? Self.foregroundConnectionsIntervalMilliseconds
+                : Self.backgroundConnectionsIntervalMilliseconds,
             enableLogsStream: logsEnabled,
             mediumFrequencyIntervalNanoseconds: input.foregroundMediumFrequencyIntervalNanoseconds,
             lowFrequencyIntervalNanoseconds: lowFrequencyInterval)

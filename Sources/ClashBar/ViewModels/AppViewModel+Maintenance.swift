@@ -1,7 +1,19 @@
 import Foundation
 
+struct WebDAVConfigSyncFeedback: Equatable {
+    enum Kind: Equatable {
+        case success
+        case error
+    }
+
+    let kind: Kind
+    let message: String
+}
+
 @MainActor
 extension AppViewModel {
+    private static let webDAVConfigSyncSettingsKey = "clashbar.webdav.config_sync.settings"
+
     func upgradeCore() async {
         guard !self.isCoreUpgradeInFlight else { return }
 
@@ -31,6 +43,96 @@ extension AppViewModel {
 
     func refreshActiveTab() async {
         await refreshForActivatedTab(activeMenuTab)
+    }
+
+    var canSyncSelectedConfigWithWebDAV: Bool {
+        !self.isRemoteTarget &&
+            self.configRepository.selectedConfig != nil &&
+            self.webDAVConfigSyncSettings.endpoint.trimmedNonEmpty != nil &&
+            self.webDAVConfigSyncInFlight == nil
+    }
+
+    func persistWebDAVConfigSyncSettings() {
+        self.webDAVConfigSyncSettings.endpoint = self.webDAVConfigSyncSettings.endpoint.trimmed
+        self.webDAVConfigSyncSettings.username = self.webDAVConfigSyncSettings.username.trimmed
+        self.webDAVConfigSyncSettings.remoteFileName = self.webDAVConfigSyncSettings.remoteFileName.trimmed
+        do {
+            let data = try JSONEncoder().encode(self.webDAVConfigSyncSettings)
+            self.defaults.set(data, forKey: Self.webDAVConfigSyncSettingsKey)
+        } catch {
+            self.appendLog(level: "error", message: tr("log.webdav.settings_save_failed", error.localizedDescription))
+        }
+    }
+
+    func uploadSelectedConfigToWebDAV() async {
+        guard self.canSyncSelectedConfigWithWebDAV, let selectedConfig = self.configRepository.selectedConfig else {
+            self.appendLog(level: "error", message: tr("log.webdav.config_unavailable"))
+            self.applyWebDAVConfigSyncFeedback(kind: .error, message: tr("log.webdav.config_unavailable"))
+            return
+        }
+
+        self.persistWebDAVConfigSyncSettings()
+        self.webDAVConfigSyncFeedback = nil
+        self.webDAVConfigSyncInFlight = .upload
+        defer { self.webDAVConfigSyncInFlight = nil }
+
+        do {
+            let data = try Data(contentsOf: selectedConfig)
+            try await WebDAVConfigSyncService().upload(
+                data: data,
+                settings: self.webDAVConfigSyncSettings,
+                fallbackFileName: selectedConfig.lastPathComponent)
+            let message = tr("log.webdav.upload_success", selectedConfig.lastPathComponent)
+            self.appendLog(level: "info", message: message)
+            self.applyWebDAVConfigSyncFeedback(kind: .success, message: message)
+        } catch {
+            let message = tr("log.webdav.upload_failed", error.localizedDescription)
+            self.appendLog(level: "error", message: message)
+            self.applyWebDAVConfigSyncFeedback(kind: .error, message: message)
+        }
+    }
+
+    func downloadSelectedConfigFromWebDAV() async {
+        guard self.canSyncSelectedConfigWithWebDAV, let selectedConfig = self.configRepository.selectedConfig else {
+            self.appendLog(level: "error", message: tr("log.webdav.config_unavailable"))
+            self.applyWebDAVConfigSyncFeedback(kind: .error, message: tr("log.webdav.config_unavailable"))
+            return
+        }
+
+        self.persistWebDAVConfigSyncSettings()
+        self.webDAVConfigSyncFeedback = nil
+        self.webDAVConfigSyncInFlight = .download
+        defer { self.webDAVConfigSyncInFlight = nil }
+
+        do {
+            let data = try await WebDAVConfigSyncService().download(
+                settings: self.webDAVConfigSyncSettings,
+                fallbackFileName: selectedConfig.lastPathComponent)
+            try self.writeConfigData(data, to: selectedConfig)
+            self.markInternalConfigFileMutationHandled()
+            _ = self.configRepository.reloadConfigs()
+            self.syncConfigDisplayState()
+            let message = tr("log.webdav.download_success", selectedConfig.lastPathComponent)
+            self.appendLog(level: "info", message: message)
+            self.applyWebDAVConfigSyncFeedback(kind: .success, message: message)
+        } catch {
+            let message = tr("log.webdav.download_failed", error.localizedDescription)
+            self.appendLog(level: "error", message: message)
+            self.applyWebDAVConfigSyncFeedback(kind: .error, message: message)
+        }
+    }
+
+    func loadPersistedWebDAVConfigSyncSettings() -> WebDAVConfigSyncSettings {
+        guard let data = self.defaults.data(forKey: Self.webDAVConfigSyncSettingsKey),
+              let settings = try? JSONDecoder().decode(WebDAVConfigSyncSettings.self, from: data)
+        else {
+            return WebDAVConfigSyncSettings()
+        }
+        return settings
+    }
+
+    private func applyWebDAVConfigSyncFeedback(kind: WebDAVConfigSyncFeedback.Kind, message: String) {
+        self.webDAVConfigSyncFeedback = WebDAVConfigSyncFeedback(kind: kind, message: message)
     }
 
     var isCoreUpgradeInFlight: Bool {

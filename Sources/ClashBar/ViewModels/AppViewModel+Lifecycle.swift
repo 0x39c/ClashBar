@@ -248,6 +248,8 @@ extension AppViewModel {
         settingsFeedbackClearTask = nil
         coreUpgradeFeedbackClearTask?.cancel()
         coreUpgradeFeedbackClearTask = nil
+        pendingRuleConfigApplyTask?.cancel()
+        pendingRuleConfigApplyTask = nil
         flushPendingMihomoLogsIfNeeded()
     }
 
@@ -352,9 +354,11 @@ extension AppViewModel {
             ruleItems = []
             groupLatencyLoading = []
             isRuleProvidersRefreshing = false
-            selectedProxyProviderName = nil
+            selectedCommonProxyProviderName = nil
+            selectedDownloadProxyProviderName = nil
             connectionsStore.connections = []
             connectionsStore.connectionsCount = 0
+            connectionsStore.clearLargeTrafficCandidates()
             startupErrorMessage = nil
             defaults.set(configPath, forKey: lastSuccessfulConfigPathKey)
             self.cancelPolling()

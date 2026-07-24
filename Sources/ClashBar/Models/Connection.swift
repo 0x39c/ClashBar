@@ -182,6 +182,27 @@ struct ConnectionMetadata: Codable, Equatable {
     }
 }
 
+struct LargeTrafficConnectionCandidate: Identifiable, Equatable {
+    let id: String
+    let ruleType: String
+    let payload: String
+    let policy: String
+    let host: String
+    let processName: String?
+    let network: String?
+    let rule: String?
+    let rulePayload: String?
+    let chains: [String]
+    let upload: Int64
+    let download: Int64
+    let trafficTotal: Int64
+    let lastSeenAt: Date
+
+    var ruleText: String {
+        [self.ruleType, self.payload, self.policy].joined(separator: ",")
+    }
+}
+
 private struct ConnectionAnyCodingKey: CodingKey {
     let stringValue: String
     let intValue: Int?

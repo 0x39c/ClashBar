@@ -384,6 +384,7 @@ extension AppViewModel {
         self.proxyHistoryLatestDelay = presentation.history
         self.proxyNodeTypes = presentation.nodeTypes
         self.refreshSelectedProxyProviderName()
+        self.refreshLargeTrafficCandidatesForCurrentProxyGroups()
         self.autoFixGroupsPointingToHiddenNodes(presentation.groups)
     }
 

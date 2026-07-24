@@ -29,6 +29,7 @@
 "ui.action.collapse" = "折叠";
 "ui.action.close_all" = "关闭全部";
 "ui.action.close_connection" = "关闭连接";
+"ui.action.clear" = "清空";
 "ui.action.copy_all_logs" = "复制全部日志";
 "ui.action.clear_all_logs" = "清理全部日志";
 "ui.action.copy_host" = "复制 Host";
@@ -39,6 +40,7 @@
 "ui.action.overwrite" = "覆盖";
 "ui.action.delete" = "删除";
 "ui.action.cancel" = "取消";
+"ui.action.save" = "保存";
 "ui.action.pin" = "固定";
 "ui.action.unpin" = "取消固定";
 "ui.action.close" = "关闭";
@@ -46,9 +48,15 @@
 "ui.action.flush_fakeip_cache" = "清理 FakeIP 缓存";
 "ui.action.flush_dns_cache" = "清理 DNS 缓存";
 "ui.action.open_core_directory" = "打开内核目录";
+"ui.action.webdav_upload" = "上传配置";
+"ui.action.webdav_download" = "下载配置";
 "ui.action.enable_tun" = "开启 TUN 模式";
 "ui.action.disable_tun" = "关闭 TUN 模式";
 "ui.action.upgrade_core" = "升级 Core";
+"ui.action.add_rule" = "新增分流规则";
+"ui.action.move_up" = "上移";
+"ui.action.move_down" = "下移";
+"ui.action.drag_reorder" = "拖动调整顺序";
 
 "ui.mode.rule" = "规则";
 "ui.mode.global" = "全局";
@@ -71,6 +79,13 @@
 "ui.section.local_app_settings" = "应用设置 (本地)";
 "ui.section.core_settings" = "内核设置";
 "ui.section.core_settings_remote" = "内核设置 (远程)";
+"ui.section.webdav_config_sync" = "配置同步";
+"ui.webdav.endpoint" = "地址";
+"ui.webdav.username" = "用户名";
+"ui.webdav.password" = "密码";
+"ui.webdav.remote_directory" = "远端目录";
+"ui.webdav.remote_file" = "远端文件名";
+"ui.webdav.hint" = "同步当前选中的本地配置文件。地址填写 WebDAV 根目录；远端目录固定为 ClashBar，下载会覆盖当前配置。";
 
 "ui.quick.current_config" = "当前配置";
 "ui.quick.system_proxy" = "系统代理";
@@ -118,7 +133,14 @@
 "ui.empty.proxy_groups" = "暂无代理组";
 "ui.empty.rules" = "暂无规则数据";
 "ui.empty.connections" = "暂无活动连接";
+"ui.empty.large_traffic" = "暂无超额";
 "ui.empty.logs" = "暂无日志";
+"ui.connections.tab.active" = "连接";
+"ui.connections.tab.large_traffic" = "超额";
+"ui.connections.large_traffic.title" = "超额";
+"ui.connections.large_traffic.target_policy" = "目标策略";
+"ui.connections.large_traffic.threshold" = "阈值";
+"ui.connections.large_traffic.add_rule" = "添加分流规则";
 
 "ui.placeholder.filter_connection" = "过滤域名、IP...";
 "ui.placeholder.search_logs" = "搜索日志...";
@@ -131,7 +153,6 @@
 "ui.network.filter.transport.udp" = "仅 UDP";
 "ui.network.filter.transport.other" = "其他协议";
 "ui.network.sort.label" = "网络排序";
-"ui.network.sort.default" = "默认顺序";
 "ui.network.sort.newest" = "最新连接";
 "ui.network.sort.oldest" = "最早连接";
 "ui.network.sort.upload_desc" = "上传流量高到低";
@@ -323,6 +344,12 @@
 "log.core_upgrade.latest" = "内核已是最新版本";
 "log.core_upgrade.latest_version" = "内核已是最新版本（%@）";
 "log.core_upgrade.failed" = "内核更新失败: %@";
+"log.webdav.settings_save_failed" = "保存 WebDAV 同步设置失败: %@";
+"log.webdav.config_unavailable" = "WebDAV 同步失败: 当前没有可同步的本地配置";
+"log.webdav.upload_success" = "WebDAV 上传完成: %@";
+"log.webdav.upload_failed" = "WebDAV 上传失败: %@";
+"log.webdav.download_success" = "WebDAV 下载完成: %@";
+"log.webdav.download_failed" = "WebDAV 下载失败: %@";
 "log.config.validate_failed" = "配置校验失败（%@）: %@";
 "log.system_proxy.toggled" = "系统代理%@";
 "log.system_proxy.enabled" = "已开启";
@@ -391,6 +418,8 @@
 "fmt.remote_config.next_update_minutes" = "自动 %d 分后";
 "fmt.remote_config.last_update" = "上次 %@";
 "ui.action.copy_subscription_url" = "复制订阅链接";
+"ui.proxy_provider.bind.common" = "绑定日常";
+"ui.proxy_provider.bind.media" = "绑定优质";
 "app.provider.add.prompt" = "输入 provider 名称和订阅 URL。保存后会写入 proxy-providers。";
 "app.provider.add.name_label" = "名称";
 "app.provider.add.name_placeholder" = "例如：n256";
@@ -416,7 +445,29 @@
 "app.provider.error.providers_section_not_found" = "未找到“proxy-providers”段。";
 "app.provider.error.provider_not_found" = "未找到代理提供者“%@”。";
 "app.provider.error.provider_already_exists" = "代理提供者“%@”已存在。";
-"ui.proxy_provider.help.bind" = "点击将该提供者绑定到本地默认配置组。";
+"app.rule.local_only" = "仅本地配置可编辑分流规则。";
+"app.rule.local_config_unresolved" = "无法解析当前选中的本地配置。";
+"app.rule.add.prompt" = "选择规则类型和策略，填写中间的匹配内容；保存后会写入当前配置的 rules 段。";
+"app.rule.add.rule_label" = "规则";
+"app.rule.add.type_label" = "类型";
+"app.rule.add.payload_label" = "内容";
+"app.rule.add.policy_label" = "策略";
+"app.rule.add.rule_placeholder" = "DOMAIN-SUFFIX,example.com,DIRECT";
+"app.rule.add.payload_placeholder" = "example.com";
+"app.rule.add.success" = "已新增分流规则：%@";
+"app.rule.add.failed" = "新增分流规则“%@”失败：%@";
+"app.rule.delete.success" = "已删除分流规则：%@";
+"app.rule.delete.failed" = "删除分流规则“%@”失败：%@";
+"app.rule.move.success" = "已调整分流规则顺序。";
+"app.rule.move.failed" = "调整分流规则顺序失败：%@";
+"app.rule.delete.confirm.title" = "删除分流规则？";
+"app.rule.delete.confirm.message" = "这会立即从当前配置中移除：";
+"app.rule.error.rules_section_not_found" = "未找到“rules”段。";
+"app.rule.error.invalid" = "规则格式无效。";
+"app.rule.error.already_exists" = "分流规则“%@”已存在。";
+"app.rule.error.not_found" = "未找到分流规则“%@”。";
+"ui.proxy_provider.help.bind_common" = "点击将该提供者绑定为日常。";
+"ui.proxy_provider.help.bind_media" = "点击将该提供者绑定为优质。";
 "ui.proxy_provider.help.local_only" = "仅当所选配置是本地目标上的本地默认 ClashBar.yaml 时，才可进行 Provider 绑定。";
 "app.config.delete.title" = "删除 %@";
 "app.config.delete.message" = "此操作将永久删除配置文件。如果这是远程订阅，订阅元数据也会被一并删除。";

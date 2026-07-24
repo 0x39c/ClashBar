@@ -249,6 +249,10 @@ extension AppViewModel {
         if connectionsStore.connections != snapshot.connections {
             connectionsStore.connections = snapshot.connections
         }
+        connectionsStore.recordLargeTrafficCandidates(
+            from: snapshot.connections,
+            targetPolicy: self.effectiveLargeTrafficRuleTargetPolicy,
+            focusedPolicyNames: self.largeTrafficProxyGroupNames)
     }
 
     func normalizedWebSocketPayload(from message: URLSessionWebSocketTask.Message) -> Data? {

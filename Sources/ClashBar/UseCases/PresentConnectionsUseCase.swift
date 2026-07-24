@@ -31,8 +31,6 @@ struct PresentConnectionsUseCase {
         sortOption: ConnectionsSortOption) -> [ConnectionSummary]
     {
         switch sortOption {
-        case .default:
-            source
         case .newest:
             self.connectionsSortedByTimestamp(source, descending: true)
         case .oldest:

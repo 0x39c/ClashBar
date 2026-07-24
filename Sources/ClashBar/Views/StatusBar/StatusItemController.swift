@@ -7,6 +7,7 @@ private struct StatusItemRenderKey: Equatable {
     let symbolName: String?
     let speedLines: MenuBarSpeedLines?
     let isRunning: Bool
+    let pendingCount: Int
 }
 
 private final class FloatingPanel: NSPanel {
@@ -216,7 +217,7 @@ final class StatusItemController: NSObject {
     private let statusItem: NSStatusItem
     private let panel: FloatingPanel
     private let bannerPanel: PassiveFloatingPanel
-    private let statusContentView: StatusItemContentView
+    private let statusImageRenderer: StatusItemImageRenderer
     private let popoverLayoutModel = PopoverLayoutModel()
     private let popoverFallbackMaxHeight: CGFloat = 640
     private let popoverScreenPadding: CGFloat = 10
@@ -279,7 +280,7 @@ final class StatusItemController: NSObject {
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: true)
-        self.statusContentView = StatusItemContentView(frame: .zero)
+        self.statusImageRenderer = StatusItemImageRenderer()
 
         super.init()
 
@@ -434,14 +435,13 @@ final class StatusItemController: NSObject {
         guard let button = statusItem.button else { return }
 
         button.image = nil
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleNone
         button.title = ""
         button.target = self
         button.action = #selector(self.togglePopover(_:))
         button.sendAction(on: [.leftMouseUp])
-
-        self.statusContentView.frame = button.bounds
-        self.statusContentView.autoresizingMask = [.width, .height]
-        button.addSubview(self.statusContentView)
+        button.setAccessibilityLabel("ClashBar")
     }
 
     private func bindSession() {
@@ -518,8 +518,9 @@ final class StatusItemController: NSObject {
     private func refreshDisplay(_ display: MenuBarDisplay, renderKey: StatusItemRenderKey) {
         guard renderKey != self.lastRenderedKey else { return }
 
-        self.statusContentView.apply(display: display)
-        let requiredWidth = self.statusContentView.requiredWidth
+        guard let button = self.statusItem.button else { return }
+        button.image = self.statusImageRenderer.image(for: display)
+        let requiredWidth = self.statusImageRenderer.requiredWidth(for: display)
         if abs(self.statusItem.length - requiredWidth) > 0.5 {
             self.statusItem.length = requiredWidth
         }
@@ -574,19 +575,22 @@ final class StatusItemController: NSObject {
                 mode: .iconOnly,
                 symbolName: display.symbolName,
                 speedLines: nil,
-                isRunning: display.isRunning)
+                isRunning: display.isRunning,
+                pendingCount: display.pendingCount)
         case .iconAndSpeed:
             return StatusItemRenderKey(
                 mode: .iconAndSpeed,
                 symbolName: display.symbolName,
                 speedLines: display.speedLines,
-                isRunning: display.isRunning)
+                isRunning: display.isRunning,
+                pendingCount: display.pendingCount)
         case .speedOnly:
             return StatusItemRenderKey(
                 mode: .speedOnly,
                 symbolName: nil,
                 speedLines: display.speedLines,
-                isRunning: display.isRunning)
+                isRunning: display.isRunning,
+                pendingCount: display.pendingCount)
         }
     }
 

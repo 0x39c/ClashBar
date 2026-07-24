@@ -17,6 +17,7 @@ extension AppViewModel {
         self.ruleItems = []
         self.connectionsStore.connections = []
         self.connectionsStore.connectionsCount = 0
+        self.connectionsStore.clearLargeTrafficCandidates()
 
         switch target {
         case .local:

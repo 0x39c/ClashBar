@@ -10,12 +10,15 @@ extension ProxyTabView {
         if !isProxyProvidersCollapsed {
             return providers
         }
-        if let selected = appViewModel.selectedProxyProviderName,
-           providers.contains(selected)
-        {
-            return [selected]
+        var visible: [String] = []
+        for selected in [
+            appViewModel.selectedCommonProxyProviderName,
+            appViewModel.selectedDownloadProxyProviderName,
+        ].compactMap({ $0 }) {
+            guard providers.contains(selected), !visible.contains(selected) else { continue }
+            visible.append(selected)
         }
-        return []
+        return visible
     }
 
     var proxyProvidersSection: some View {
@@ -39,7 +42,7 @@ extension ProxyTabView {
                         label: self.tr("ui.action.add_proxy_provider"),
                         toneOverride: nativeTeal)
                     {
-                        await self.appViewModel.addProxyProviderToLocalDefaultConfig()
+                        self.showAddProxyProviderSheet = true
                     }
                     .disabled(!self.appViewModel.canBindProviderToSelectedLocalDefaultConfig)
                     .help(self.appViewModel.canBindProviderToSelectedLocalDefaultConfig
@@ -89,10 +92,12 @@ extension ProxyTabView {
         let isUpdating = appViewModel.providerUpdating.contains(name)
         let hovered = hoveredProviderName == name
         let isBindingEnabled = appViewModel.canBindProviderToSelectedLocalDefaultConfig
-        let isSelected = appViewModel.selectedProxyProviderName == name
+        let isCommonSelected = appViewModel.selectedCommonProxyProviderName == name
+        let isDownloadSelected = appViewModel.selectedDownloadProxyProviderName == name
+        let isSelected = isCommonSelected || isDownloadSelected
         let updateTimeWidth: CGFloat = 44
         let hasSubscription = detail?.subscriptionInfo != nil
-        let bindingHelpText = self.tr("ui.proxy_provider.help.bind")
+        let bindingHelpText = self.tr("ui.proxy_provider.help.bind_common")
         let disabledHelpText = self.tr("ui.proxy_provider.help.local_only")
 
         return HStack(alignment: .top, spacing: T.space6) {
@@ -103,12 +108,19 @@ extension ProxyTabView {
                     HStack(alignment: .center, spacing: T.space6) {
                         ZStack {
                             Circle()
-                                .fill(self.providerRowIconBackground(isSelected: isSelected, hovered: hovered))
+                                .fill(self.providerRowIconBackground(
+                                    isCommonSelected: isCommonSelected,
+                                    isDownloadSelected: isDownloadSelected,
+                                    hovered: hovered))
                                 .frame(width: 24, height: 24)
 
                             Image(systemName: "externaldrive.fill")
                                 .font(.app(size: T.FontSize.caption, weight: .semibold))
-                                .foregroundStyle(isSelected ? nativeTeal.opacity(T.Opacity.solid) : nativeSecondaryLabel)
+                                .foregroundStyle(isSelected
+                                    ? self.providerRowAccentColor(
+                                        isCommonSelected: isCommonSelected,
+                                        isDownloadSelected: isDownloadSelected).opacity(T.Opacity.solid)
+                                    : nativeSecondaryLabel)
                         }
 
                         HStack(alignment: .center, spacing: T.space4) {
@@ -125,6 +137,10 @@ extension ProxyTabView {
                                     .fixedSize()
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
+
+                            self.proxyProviderBindingBadges(
+                                isCommonSelected: isCommonSelected,
+                                isDownloadSelected: isDownloadSelected)
 
                             Text(updatedText)
                                 .font(.app(size: T.FontSize.caption, weight: .regular))
@@ -203,12 +219,17 @@ extension ProxyTabView {
         .padding(.horizontal, rowHorizontalPadding)
         .padding(.vertical, T.space6)
         .background {
-            self.providerRowBackground(isSelected: isSelected, hovered: hovered)
+            self.providerRowBackground(
+                isCommonSelected: isCommonSelected,
+                isDownloadSelected: isDownloadSelected,
+                hovered: hovered)
         }
         .overlay(alignment: .leading) {
             if isSelected {
                 Capsule(style: .continuous)
-                    .fill(nativeTeal.opacity(T.Opacity.solid))
+                    .fill(self.providerRowAccentColor(
+                        isCommonSelected: isCommonSelected,
+                        isDownloadSelected: isDownloadSelected).opacity(T.Opacity.solid))
                     .frame(width: 3)
                     .padding(.vertical, T.space6)
                     .padding(.leading, T.space2)
@@ -217,6 +238,20 @@ extension ProxyTabView {
         .contentShape(Rectangle())
         .contextMenu {
             if isBindingEnabled {
+                Button {
+                    Task { await self.appViewModel.selectProxyProviderForLocalDefaultConfig(name: name) }
+                } label: {
+                    Text(self.tr("ui.proxy_provider.bind.common"))
+                }
+
+                Button {
+                    Task { await self.appViewModel.selectDownloadProxyProviderForLocalDefaultConfig(name: name) }
+                } label: {
+                    Text(self.tr("ui.proxy_provider.bind.media"))
+                }
+
+                Divider()
+
                 Button(role: .destructive) {
                     Task { await self.appViewModel.deleteProxyProviderFromLocalDefaultConfig(name: name) }
                 } label: {
@@ -230,9 +265,40 @@ extension ProxyTabView {
             isHovering: $0) }
     }
 
-    func providerRowIconBackground(isSelected: Bool, hovered: Bool) -> Color {
-        if isSelected {
-            return nativeTeal.opacity(isDarkAppearance ? 0.22 : 0.16)
+    @ViewBuilder
+    func proxyProviderBindingBadges(isCommonSelected: Bool, isDownloadSelected: Bool) -> some View {
+        if isCommonSelected {
+            self.proxyProviderBindingBadge(
+                fill: nativeWarning)
+        }
+
+        if isDownloadSelected {
+            self.proxyProviderBindingBadge(
+                fill: nativePositive)
+        }
+    }
+
+    func proxyProviderBindingBadge(fill: Color) -> some View {
+        Circle()
+            .fill(fill.opacity(T.Opacity.solid))
+            .frame(width: 10, height: 10)
+    }
+
+    func providerRowAccentColor(isCommonSelected: Bool, isDownloadSelected: Bool) -> Color {
+        if isCommonSelected {
+            return nativeWarning
+        }
+        if isDownloadSelected {
+            return nativePositive
+        }
+        return nativeTeal
+    }
+
+    func providerRowIconBackground(isCommonSelected: Bool, isDownloadSelected: Bool, hovered: Bool) -> Color {
+        if isCommonSelected || isDownloadSelected {
+            return self.providerRowAccentColor(
+                isCommonSelected: isCommonSelected,
+                isDownloadSelected: isDownloadSelected).opacity(isDarkAppearance ? 0.22 : 0.16)
         }
         if hovered {
             return nativeHoverFill.opacity(isDarkAppearance ? 0.16 : 0.10)
@@ -240,24 +306,43 @@ extension ProxyTabView {
         return nativeBadgeFill
     }
 
-    func providerRowBackground(isSelected: Bool, hovered: Bool) -> some View {
+    func providerRowBackground(isCommonSelected: Bool, isDownloadSelected: Bool, hovered: Bool) -> some View {
         let shape = RoundedRectangle(cornerRadius: T.cornerRadius, style: .continuous)
+        let isSelected = isCommonSelected || isDownloadSelected
+        let accent = self.providerRowAccentColor(
+            isCommonSelected: isCommonSelected,
+            isDownloadSelected: isDownloadSelected)
 
         return shape
-            .fill(self.providerRowFill(isSelected: isSelected, hovered: hovered))
+            .fill(self.providerRowFill(
+                isCommonSelected: isCommonSelected,
+                isDownloadSelected: isDownloadSelected,
+                hovered: hovered))
             .overlay(alignment: .topLeading) {
                 if isSelected {
-                    LinearGradient(
-                        colors: [nativeTeal.opacity(isDarkAppearance ? 0.10 : 0.06), .clear],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing)
-                        .clipShape(shape)
+                    if isCommonSelected && isDownloadSelected {
+                        LinearGradient(
+                            colors: [
+                                nativePositive.opacity(isDarkAppearance ? 0.13 : 0.08),
+                                nativeInfo.opacity(isDarkAppearance ? 0.13 : 0.08),
+                                .clear,
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing)
+                            .clipShape(shape)
+                    } else {
+                        LinearGradient(
+                            colors: [accent.opacity(isDarkAppearance ? 0.13 : 0.08), .clear],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing)
+                            .clipShape(shape)
+                    }
                 }
             }
             .overlay {
                 shape.stroke(
                     isSelected
-                        ? nativeTeal.opacity(isDarkAppearance ? 0.46 : 0.34)
+                        ? accent.opacity(isDarkAppearance ? 0.46 : 0.34)
                         : nativeControlBorder.opacity(hovered ? 0.42 : 0.28),
                     lineWidth: T.stroke)
             }
@@ -268,9 +353,11 @@ extension ProxyTabView {
                 y: isSelected ? 3 : 0)
     }
 
-    func providerRowFill(isSelected: Bool, hovered: Bool) -> Color {
-        if isSelected {
-            return Color(nsColor: .selectedContentBackgroundColor).opacity(isDarkAppearance ? 0.20 : 0.12)
+    func providerRowFill(isCommonSelected: Bool, isDownloadSelected: Bool, hovered: Bool) -> Color {
+        if isCommonSelected || isDownloadSelected {
+            return self.providerRowAccentColor(
+                isCommonSelected: isCommonSelected,
+                isDownloadSelected: isDownloadSelected).opacity(isDarkAppearance ? 0.30 : 0.18)
         }
         if hovered {
             return nativeHoverFill.opacity(isDarkAppearance ? 0.14 : 0.08)

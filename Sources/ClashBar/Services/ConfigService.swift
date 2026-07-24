@@ -311,7 +311,12 @@ struct LocalProxyProviderBindingMutator {
         }
     }
 
-    func bindProvider(named providerName: String, toProviderListNamed listName: String, in content: String) throws -> String {
+    func bindProvider(
+        named providerName: String,
+        toProviderListNamed listName: String,
+        enablingProvidersFromListNames enabledProviderListNames: [String]? = nil,
+        in content: String) throws -> String
+    {
         let originalNewline = content.contains("\r\n") ? "\r\n" : "\n"
         let normalizedContent = content.replacingOccurrences(of: "\r\n", with: "\n")
         var lines = normalizedContent.components(separatedBy: "\n")
@@ -325,8 +330,12 @@ struct LocalProxyProviderBindingMutator {
             lines.remove(at: removalIndex)
         }
 
+        let enabledProviderNames = self.enabledProviderNames(
+            fallbackProviderName: providerName,
+            providerListNames: enabledProviderListNames,
+            lines: lines)
         try self.setProviderHealthCheckInheritance(
-            enabledProviderName: providerName,
+            enabledProviderNames: enabledProviderNames,
             enabledAlias: "enableCheck",
             disabledAlias: "disableCheck",
             in: &lines)
@@ -346,6 +355,27 @@ struct LocalProxyProviderBindingMutator {
             return nil
         }
         return self.providerName(fromProviderListLine: lines[firstItemIndex])
+    }
+
+    private func selectedProviderName(inProviderListNamed listName: String, lines: [String]) -> String? {
+        guard let binding = try? self.providerListBinding(listName: listName, lines: lines),
+              let firstItemIndex = binding.itemIndices.first
+        else {
+            return nil
+        }
+        return self.providerName(fromProviderListLine: lines[firstItemIndex])
+    }
+
+    private func enabledProviderNames(
+        fallbackProviderName: String,
+        providerListNames: [String]?,
+        lines: [String]) -> Set<String>
+    {
+        guard let providerListNames else { return [fallbackProviderName] }
+        let names = providerListNames.compactMap {
+            self.selectedProviderName(inProviderListNamed: $0, lines: lines)
+        }
+        return Set(names.isEmpty ? [fallbackProviderName] : names)
     }
 
     private func providerListBinding(listName: String, lines: [String]) throws -> (itemIndent: Int, itemIndices: [Int]) {
@@ -414,7 +444,7 @@ struct LocalProxyProviderBindingMutator {
     }
 
     private func setProviderHealthCheckInheritance(
-        enabledProviderName: String,
+        enabledProviderNames: Set<String>,
         enabledAlias: String,
         disabledAlias: String,
         in lines: inout [String]) throws
@@ -423,7 +453,7 @@ struct LocalProxyProviderBindingMutator {
 
         for headerIndex in section.itemHeaders {
             guard let providerName = Self.mappingKey(from: lines[headerIndex], allowCommented: false) else { continue }
-            let alias = providerName == enabledProviderName ? enabledAlias : disabledAlias
+            let alias = enabledProviderNames.contains(providerName) ? enabledAlias : disabledAlias
             self.upsertMergeAlias(
                 alias,
                 afterProviderHeaderAt: headerIndex,
@@ -540,6 +570,286 @@ struct LocalProxyProviderDefinitionMutator {
             throw MutationError.providersSectionNotFound
         }
     }
+}
+
+struct LocalRuleMutationInput: Equatable {
+    let type: String
+    let payload: String
+    let policy: String
+}
+
+struct LocalRuleMutator {
+    enum MutationError: LocalizedError {
+        case rulesSectionNotFound
+        case ruleInvalid
+        case ruleAlreadyExists(String)
+        case ruleNotFound(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .rulesSectionNotFound:
+                providerMutationText("app.rule.error.rules_section_not_found")
+            case .ruleInvalid:
+                providerMutationText("app.rule.error.invalid")
+            case let .ruleAlreadyExists(rule):
+                providerMutationText("app.rule.error.already_exists", rule)
+            case let .ruleNotFound(rule):
+                providerMutationText("app.rule.error.not_found", rule)
+            }
+        }
+    }
+
+    func addRule(_ rawRule: String, to content: String) throws -> String {
+        let originalNewline = content.contains("\r\n") ? "\r\n" : "\n"
+        let normalizedContent = content.replacingOccurrences(of: "\r\n", with: "\n")
+        var lines = normalizedContent.components(separatedBy: "\n")
+        let section = try self.rulesSection(in: lines)
+        let input = try self.parseRuleInput(rawRule)
+        let normalizedRule = self.ruleLinePayload(type: input.type, payload: input.payload, policy: input.policy)
+
+        if section.itemIndices.contains(where: {
+            self.normalizedRuleLinePayload(lines[$0]) == normalizedRule
+        }) {
+            throw MutationError.ruleAlreadyExists(normalizedRule)
+        }
+
+        let insertionIndex = section.itemIndices.first ?? section.sectionEndIndex
+        let indent = String(repeating: " ", count: section.itemIndent)
+        lines.insert("\(indent)- \(normalizedRule)", at: insertionIndex)
+
+        let updated = lines.joined(separator: "\n")
+        return originalNewline == "\n"
+            ? updated
+            : updated.replacingOccurrences(of: "\n", with: originalNewline)
+    }
+
+    func removeRule(matching input: LocalRuleMutationInput, from content: String) throws -> String {
+        let originalNewline = content.contains("\r\n") ? "\r\n" : "\n"
+        let normalizedContent = content.replacingOccurrences(of: "\r\n", with: "\n")
+        var lines = normalizedContent.components(separatedBy: "\n")
+        let section = try self.rulesSection(in: lines)
+        let target = self.ruleLinePayload(type: input.type, payload: input.payload, policy: input.policy)
+
+        guard let removalIndex = section.itemIndices.first(where: {
+            self.normalizedRuleLinePayload(lines[$0]) == target
+        }) else {
+            throw MutationError.ruleNotFound(target)
+        }
+
+        lines.remove(at: removalIndex)
+        let updated = lines.joined(separator: "\n")
+        return originalNewline == "\n"
+            ? updated
+            : updated.replacingOccurrences(of: "\n", with: originalNewline)
+    }
+
+    func moveRule(matching input: LocalRuleMutationInput, before targetInput: LocalRuleMutationInput, in content: String) throws -> String {
+        let originalNewline = content.contains("\r\n") ? "\r\n" : "\n"
+        let normalizedContent = content.replacingOccurrences(of: "\r\n", with: "\n")
+        var lines = normalizedContent.components(separatedBy: "\n")
+        let section = try self.rulesSection(in: lines)
+        let source = self.ruleLinePayload(type: input.type, payload: input.payload, policy: input.policy)
+        let target = self.ruleLinePayload(type: targetInput.type, payload: targetInput.payload, policy: targetInput.policy)
+        guard source != target else { return content }
+
+        guard let sourceIndex = section.itemIndices.first(where: {
+            self.normalizedRuleLinePayload(lines[$0]) == source
+        }) else {
+            throw MutationError.ruleNotFound(source)
+        }
+        guard var targetIndex = section.itemIndices.first(where: {
+            self.normalizedRuleLinePayload(lines[$0]) == target
+        }) else {
+            throw MutationError.ruleNotFound(target)
+        }
+
+        let sourceLine = lines.remove(at: sourceIndex)
+        if sourceIndex < targetIndex {
+            targetIndex -= 1
+        }
+        lines.insert(sourceLine, at: targetIndex)
+
+        let updated = lines.joined(separator: "\n")
+        return originalNewline == "\n"
+            ? updated
+            : updated.replacingOccurrences(of: "\n", with: originalNewline)
+    }
+
+    func moveRule(matching input: LocalRuleMutationInput, after targetInput: LocalRuleMutationInput, in content: String) throws -> String {
+        let originalNewline = content.contains("\r\n") ? "\r\n" : "\n"
+        let normalizedContent = content.replacingOccurrences(of: "\r\n", with: "\n")
+        var lines = normalizedContent.components(separatedBy: "\n")
+        let section = try self.rulesSection(in: lines)
+        let source = self.ruleLinePayload(type: input.type, payload: input.payload, policy: input.policy)
+        let target = self.ruleLinePayload(type: targetInput.type, payload: targetInput.payload, policy: targetInput.policy)
+        guard source != target else { return content }
+
+        guard let sourceIndex = section.itemIndices.first(where: {
+            self.normalizedRuleLinePayload(lines[$0]) == source
+        }) else {
+            throw MutationError.ruleNotFound(source)
+        }
+        guard var targetIndex = section.itemIndices.first(where: {
+            self.normalizedRuleLinePayload(lines[$0]) == target
+        }) else {
+            throw MutationError.ruleNotFound(target)
+        }
+
+        let sourceLine = lines.remove(at: sourceIndex)
+        if sourceIndex < targetIndex {
+            targetIndex -= 1
+        }
+        lines.insert(sourceLine, at: targetIndex + 1)
+
+        let updated = lines.joined(separator: "\n")
+        return originalNewline == "\n"
+            ? updated
+            : updated.replacingOccurrences(of: "\n", with: originalNewline)
+    }
+
+    func input(fromRawRule rawRule: String) throws -> LocalRuleMutationInput {
+        try self.parseRuleInput(rawRule)
+    }
+
+    func normalizedInput(_ input: LocalRuleMutationInput) -> LocalRuleMutationInput {
+        LocalRuleMutationInput(
+            type: self.canonicalRuleType(input.type),
+            payload: input.payload.trimmingCharacters(in: .whitespacesAndNewlines),
+            policy: input.policy.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private func parseRuleInput(_ rawRule: String) throws -> LocalRuleMutationInput {
+        let normalized = self.normalizedRulePayload(rawRule)
+        let parts = normalized.split(separator: ",", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard parts.count >= 3,
+              let type = parts.first?.trimmedNonEmpty,
+              let payload = parts.dropFirst().first?.trimmedNonEmpty,
+              let policy = parts.dropFirst(2).first?.trimmedNonEmpty
+        else {
+            throw MutationError.ruleInvalid
+        }
+        return LocalRuleMutationInput(type: type, payload: payload, policy: policy)
+    }
+
+    private func rulesSection(in lines: [String]) throws -> (headerIndent: Int, itemIndent: Int, itemIndices: [Int], sectionEndIndex: Int) {
+        guard let headerIndex = lines.firstIndex(where: { self.isRulesHeader($0) }) else {
+            throw MutationError.rulesSectionNotFound
+        }
+
+        let headerIndent = LocalProxyProviderBindingMutator.leadingWhitespaceCount(of: lines[headerIndex])
+        let itemIndent = headerIndent + 2
+        var index = headerIndex + 1
+        var itemIndices: [Int] = []
+
+        while index < lines.count {
+            let line = lines[index]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
+                index += 1
+                continue
+            }
+
+            let indent = LocalProxyProviderBindingMutator.leadingWhitespaceCount(of: line)
+            if indent <= headerIndent, !trimmed.hasPrefix("#") {
+                break
+            }
+
+            if indent == itemIndent, self.normalizedRuleLinePayload(line) != nil {
+                itemIndices.append(index)
+            }
+            index += 1
+        }
+
+        return (headerIndent, itemIndent, itemIndices, index)
+    }
+
+    private func insertionIndexBeforeFinalRule(
+        section: (headerIndent: Int, itemIndent: Int, itemIndices: [Int], sectionEndIndex: Int),
+        lines: [String]) -> Int
+    {
+        section.itemIndices.first(where: {
+            guard let payload = self.normalizedRuleLinePayload(lines[$0]) else { return false }
+            let type = payload.split(separator: ",", omittingEmptySubsequences: false).first.map(String.init) ?? ""
+            return type.caseInsensitiveCompare("MATCH") == .orderedSame ||
+                type.caseInsensitiveCompare("FINAL") == .orderedSame
+        }) ?? section.sectionEndIndex
+    }
+
+    private func isRulesHeader(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard let separatorIndex = trimmed.firstIndex(of: ":") else { return false }
+        let key = trimmed[..<separatorIndex].trimmingCharacters(in: .whitespaces)
+        return key == "rules"
+    }
+
+    private func normalizedRuleLinePayload(_ line: String) -> String? {
+        var trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("#") { return nil }
+        guard trimmed.hasPrefix("-") else { return nil }
+        trimmed.removeFirst()
+        return self.normalizedRulePayload(trimmed).trimmedNonEmpty
+    }
+
+    private func normalizedRulePayload(_ value: String) -> String {
+        let parts = LocalProxyProviderBindingMutator.stripInlineComment(from: value)
+            .split(separator: ",", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard let type = parts.first else { return "" }
+        return ([self.canonicalRuleType(type)] + parts.dropFirst()).joined(separator: ",")
+    }
+
+    private func ruleLinePayload(type: String, payload: String, policy: String) -> String {
+        [self.canonicalRuleType(type), payload, policy]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .joined(separator: ",")
+    }
+
+    private func canonicalRuleType(_ type: String) -> String {
+        let trimmed = type.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = trimmed
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .lowercased()
+        if let canonical = Self.canonicalRuleTypes[key] {
+            return canonical
+        }
+        return trimmed
+            .replacingOccurrences(of: "_", with: "-")
+            .uppercased()
+    }
+
+    private static let canonicalRuleTypes: [String: String] = [
+        "domain": "DOMAIN",
+        "domainsuffix": "DOMAIN-SUFFIX",
+        "domainkeyword": "DOMAIN-KEYWORD",
+        "domainregex": "DOMAIN-REGEX",
+        "geosite": "GEOSITE",
+        "ipcidr": "IP-CIDR",
+        "ipcidr6": "IP-CIDR6",
+        "ipcidrnoresolve": "IP-CIDR",
+        "ipcidr6noresolve": "IP-CIDR6",
+        "geoip": "GEOIP",
+        "srcipcidr": "SRC-IP-CIDR",
+        "srcipcidr6": "SRC-IP-CIDR6",
+        "srcport": "SRC-PORT",
+        "dstport": "DST-PORT",
+        "inport": "IN-PORT",
+        "inname": "IN-NAME",
+        "inuser": "IN-USER",
+        "intranet": "IN-TYPE",
+        "intype": "IN-TYPE",
+        "processname": "PROCESS-NAME",
+        "processpath": "PROCESS-PATH",
+        "uid": "UID",
+        "network": "NETWORK",
+        "dscp": "DSCP",
+        "ruleset": "RULE-SET",
+        "subrules": "SUB-RULE",
+        "subrule": "SUB-RULE",
+        "match": "MATCH",
+        "final": "FINAL",
+    ]
 }
 
 fileprivate extension LocalProxyProviderBindingMutator {
