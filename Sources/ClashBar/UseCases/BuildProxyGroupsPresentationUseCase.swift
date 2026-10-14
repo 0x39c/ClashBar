@@ -64,6 +64,19 @@ struct BuildProxyGroupsPresentationUseCase {
             }
         }
 
+        // Some mihomo versions expose provider node history only through
+        // /providers/proxies. Use it as a fallback without overriding the
+        // fresher value from /proxies.
+        var providerDetails = fallbackProxyProviders
+        providerDetails.merge(proxyProviders) { _, incoming in incoming }
+        for detail in providerDetails.values {
+            for proxy in detail.proxies ?? [] where history[proxy.name] == nil {
+                if let latest = proxy.latestDelay {
+                    history[proxy.name] = latest
+                }
+            }
+        }
+
         return ProxyGroupsPresentation(groups: groups, history: history, nodeTypes: nodeTypes)
     }
 }

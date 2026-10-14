@@ -20,12 +20,17 @@ struct ProxyTabView: TranslatingView {
     @State var copiedProxyCommandTarget: ProxyCommandCopyTarget?
     @State var proxyCommandCopyResetTask: Task<Void, Never>?
     @State var hoveredProviderName: String?
+    @State var showAddProxyProviderSheet = false
 
     var body: some View {
         self.proxyTabBody
             .onDisappear {
                 self.proxyCommandCopyResetTask?.cancel()
                 self.proxyCommandCopyResetTask = nil
+            }
+            .sheet(isPresented: self.$showAddProxyProviderSheet) {
+                AddProxyProviderSheet()
+                    .environmentObject(self.appViewModel)
             }
     }
 

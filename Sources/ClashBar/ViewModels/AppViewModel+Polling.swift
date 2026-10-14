@@ -381,9 +381,20 @@ extension AppViewModel {
             proxyProviders: proxyProviders,
             fallbackProxyProviders: self.proxyProvidersDetail)
         self.proxyGroups = presentation.groups
-        self.proxyHistoryLatestDelay = presentation.history
+
+        // Mihomo can briefly return groups without history while a provider or
+        // configuration is being refreshed. Keep the last known value for nodes
+        // that are still present, and let the current response replace it when
+        // a fresh measurement is available.
+        let currentProxyNames = Set(response.proxies.keys).union(response.proxies.values.map(\.name))
+        var mergedHistory = self.proxyHistoryLatestDelay.filter {
+            currentProxyNames.contains($0.key)
+        }
+        mergedHistory.merge(presentation.history) { _, latest in latest }
+        self.proxyHistoryLatestDelay = mergedHistory
         self.proxyNodeTypes = presentation.nodeTypes
         self.refreshSelectedProxyProviderName()
+        self.refreshLargeTrafficCandidatesForCurrentProxyGroups()
         self.autoFixGroupsPointingToHiddenNodes(presentation.groups)
     }
 

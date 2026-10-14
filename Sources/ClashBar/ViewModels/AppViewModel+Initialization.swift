@@ -64,6 +64,9 @@ extension AppViewModel {
         self.remoteConfigSubscriptions = loadPersistedRemoteConfigSubscriptions()
         pruneRemoteConfigSubscriptionsIfNeeded()
         restartRemoteConfigBackgroundTasksIfNeeded()
+        self.webDAVConfigSyncSettings = self.loadPersistedWebDAVConfigSyncSettings()
+        self.restoreLargeTrafficRuleTargetPolicy()
+        self.restoreLargeTrafficThreshold()
         if Self.ssidStrategyFeatureEnabled {
             self.ssidStrategyRules = loadPersistedSSIDStrategyRules()
             self.pruneSSIDStrategyRulesIfNeeded()

@@ -25,7 +25,10 @@ proxy-providers:
     <<: *enableCheck
     url: https://dns.google/generate_204
 
-usedProviders: &usedProviders
+dailyProviders: &dailyProviders
+  - "test"
+
+premiumProviders: &premiumProviders
   - "test"
 
 rules:
@@ -34,7 +37,7 @@ rules:
   - GEOSITE,cn,DIRECT
   - GEOIP,CN,DIRECT,no-resolve
 
-  - MATCH,正在使用
+  - MATCH,日常
 
 mixed-port: 7890
 
@@ -85,7 +88,7 @@ proxy-groups:
 
   - name: 环大陆
     type: url-test
-    use: *usedProviders
+    use: *dailyProviders
     filter: "台湾|香港|澳门|俄罗斯|TW|HK"
     exclude-type: "dns|direct"
     empty-fallback: REJECT
@@ -94,24 +97,28 @@ proxy-groups:
 
   - name: 就这样
     type: url-test
-    use: *usedProviders
+    use: *dailyProviders
     exclude-filter: "台湾|香港|澳门|俄罗斯|TW|HK"
     exclude-type: "dns|direct"
     empty-fallback: REJECT
     url: https://dns.google/generate_204
     tolerance: 200
 
-  - name: 正在使用
+  - name: 日常
     type: select
     proxies:
       - 环大陆
       - 就这样
+
+  - name: 优质
+    type: select
+    use: *premiumProviders
       
   - name: GLOBAL
     type: select
     hidden: true
     proxies:
-      - 正在使用
+      - 日常
 
 rule-providers:
   reject: 

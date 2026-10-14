@@ -41,12 +41,19 @@ enum ConnectionsTransportFilter: String, CaseIterable, Identifiable {
 }
 
 enum ConnectionsSortOption: String, CaseIterable, Identifiable {
-    case `default`
     case newest
     case oldest
     case uploadDesc
     case downloadDesc
     case totalDesc
+
+    static let menuOptions: [Self] = [
+        .totalDesc,
+        .newest,
+        .oldest,
+        .uploadDesc,
+        .downloadDesc,
+    ]
 
     var id: String {
         rawValue
@@ -54,8 +61,6 @@ enum ConnectionsSortOption: String, CaseIterable, Identifiable {
 
     var titleKey: String {
         switch self {
-        case .default:
-            "ui.network.sort.default"
         case .newest:
             "ui.network.sort.newest"
         case .oldest:
@@ -76,7 +81,7 @@ final class ConnectionsViewModel: ObservableObject {
 
     @Published var filterText: String = ""
     @Published var transportFilter: ConnectionsTransportFilter = .all
-    @Published var sortOption: ConnectionsSortOption = .default
+    @Published var sortOption: ConnectionsSortOption = .totalDesc
     @Published var hoveredConnectionID: String?
     @Published private(set) var visibleConnections: [ConnectionSummary] = []
 

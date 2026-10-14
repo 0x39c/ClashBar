@@ -310,17 +310,53 @@ extension AppViewModel {
         }
     }
 
-    func reloadConfig() async {
+    func reloadConfig(preservingMode expectedMode: CoreMode? = nil) async {
         let actionName = tr("log.action_name.reload_config")
-        let expectedTunEnabled = isTunEnabled
+        let runtimeOverrides = ConfigReloadRuntimeOverrides(
+            tunEnabled: isTunEnabled,
+            mode: expectedMode)
 
         do {
             ensureAPIClient()
             try await self.clientOrThrow().requestNoResponse(.putConfigs(force: false))
-            try await self.restoreTunAfterConfigReloadIfNeeded(expectedEnabled: expectedTunEnabled)
+            try await self.restoreRuntimeOverridesAfterConfigReload(runtimeOverrides)
             appendLog(level: "info", message: tr("log.action.success", actionName))
         } catch {
             appendLog(level: "error", message: tr("log.action.failed", actionName, error.localizedDescription))
+        }
+    }
+
+    private struct ConfigReloadRuntimeOverrides {
+        let tunEnabled: Bool
+        let mode: CoreMode?
+    }
+
+    private func restoreRuntimeOverridesAfterConfigReload(_ overrides: ConfigReloadRuntimeOverrides) async throws {
+        guard isRuntimeRunning else { return }
+
+        let client = try self.clientOrThrow()
+        var body: [String: JSONValue] = [:]
+
+        var tunBody: [String: JSONValue] = ["enable": .bool(overrides.tunEnabled)]
+        if overrides.tunEnabled, await !self.selectedConfigDeclaresTunStack() {
+            tunBody["stack"] = .string("mixed")
+        }
+        body["tun"] = .object(tunBody)
+        if overrides.tunEnabled {
+            body["dns"] = .object(["enable": .bool(true)])
+        }
+        if let expectedMode = overrides.mode {
+            body["mode"] = .string(expectedMode.rawValue)
+        }
+
+        try await client.requestNoResponse(.patchConfigs(body: body))
+
+        if isTunEnabled != overrides.tunEnabled {
+            isTunEnabled = overrides.tunEnabled
+            persistEditableSettingsSnapshot()
+        }
+        if let expectedMode = overrides.mode {
+            self.currentMode = expectedMode
         }
     }
 
@@ -361,7 +397,7 @@ extension AppViewModel {
         guard self.shouldAutoReloadCurrentConfig(updatedFileNames: updatedFileNames) else { return }
 
         cancelProviderRefresh(reason: "config switch requested")
-        await self.reloadConfig()
+        await self.reloadConfig(preservingMode: self.currentMode)
         await self.refreshFromAPI(includeSlowCalls: true)
     }
 
@@ -530,16 +566,6 @@ extension AppViewModel {
         let trimmed = rawVersion.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != "-" else { return nil }
         return trimmed
-    }
-
-    private func restoreTunAfterConfigReloadIfNeeded(expectedEnabled: Bool) async throws {
-        guard isRuntimeRunning else { return }
-        try await self.patchTunConfig(enable: expectedEnabled)
-        try await self.verifyTunRuntimeState(expectedEnabled: expectedEnabled)
-        if isTunEnabled != expectedEnabled {
-            isTunEnabled = expectedEnabled
-            persistEditableSettingsSnapshot()
-        }
     }
 
     private func upsertRemoteConfigSubscription(for fileName: String, subscription: RemoteConfigSubscription) {

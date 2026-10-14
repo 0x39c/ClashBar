@@ -36,6 +36,11 @@ extension KeyedDecodingContainer {
         {
             return parsed
         }
+        if let value = try? self.decodeIfPresent(Double.self, forKey: key),
+           value.isFinite
+        {
+            return Int(exactly: value.rounded())
+        }
         return nil
     }
 

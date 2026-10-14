@@ -17,6 +17,35 @@ private struct ProxyProviderInput {
     let url: String
 }
 
+private struct LocalRuleInput {
+    let rule: String
+}
+
+private enum LocalRuleFormOptions {
+    static let ruleTypes = [
+        "DOMAIN-SUFFIX",
+        "DOMAIN",
+        "DOMAIN-KEYWORD",
+        "DOMAIN-REGEX",
+        "IP-CIDR",
+        "IP-CIDR6",
+        "GEOIP",
+        "GEOSITE",
+        "RULE-SET",
+        "PROCESS-NAME",
+        "PROCESS-PATH",
+        "SRC-IP-CIDR",
+        "DST-PORT",
+    ]
+
+    static let policies = [
+        "DIRECT",
+        "REJECT",
+        "REJECT-DROP",
+        "PASS",
+    ]
+}
+
 private final class ProxyProviderAutofillResultHandler: NSObject, @unchecked Sendable {
     weak var appViewModel: AppViewModel?
     weak var autofillButton: NSButton?
@@ -182,8 +211,29 @@ extension AppViewModel {
         "ClashBar.yaml"
     }
 
-    private var localDefaultProviderListName: String {
-        "usedProviders"
+    private var localDefaultCommonProviderListName: String {
+        "dailyProviders"
+    }
+
+    private var localDefaultDownloadProviderListName: String {
+        "premiumProviders"
+    }
+
+    private var localDefaultLegacyCommonProviderListName: String {
+        "commonProviders"
+    }
+
+    private var localDefaultLegacyDownloadProviderListName: String {
+        "downloadProviders"
+    }
+
+    private var localDefaultProviderListNames: [String] {
+        [
+            self.localDefaultCommonProviderListName,
+            self.localDefaultDownloadProviderListName,
+            self.localDefaultLegacyCommonProviderListName,
+            self.localDefaultLegacyDownloadProviderListName,
+        ]
     }
 
     var isSelectedLocalDefaultConfig: Bool {
@@ -203,20 +253,46 @@ extension AppViewModel {
         self.isSelectedLocalDefaultConfig
     }
 
+    var canEditRulesInSelectedLocalConfig: Bool {
+        !self.isRemoteTarget && self.configRepository.selectedConfig != nil
+    }
+
     func refreshSelectedProxyProviderName() {
         guard self.isSelectedLocalDefaultConfig,
               let selectedURL = self.configRepository.selectedConfig,
               let content = try? String(contentsOf: selectedURL, encoding: .utf8)
         else {
-            self.selectedProxyProviderName = nil
+            self.selectedCommonProxyProviderName = nil
+            self.selectedDownloadProxyProviderName = nil
             return
         }
 
-        self.selectedProxyProviderName = LocalProxyProviderBindingMutator()
-            .selectedProviderName(inProviderListNamed: self.localDefaultProviderListName, content: content)
+        let mutator = LocalProxyProviderBindingMutator()
+        self.selectedCommonProxyProviderName = self.selectedProviderName(
+            using: mutator,
+            primaryListName: self.localDefaultCommonProviderListName,
+            legacyListName: self.localDefaultLegacyCommonProviderListName,
+            content: content)
+        self.selectedDownloadProxyProviderName = self.selectedProviderName(
+            using: mutator,
+            primaryListName: self.localDefaultDownloadProviderListName,
+            legacyListName: self.localDefaultLegacyDownloadProviderListName,
+            content: content)
     }
 
     func selectProxyProviderForLocalDefaultConfig(name: String) async {
+        await self.selectProxyProviderForLocalDefaultConfig(
+            name: name,
+            providerListName: self.localDefaultCommonProviderListName)
+    }
+
+    func selectDownloadProxyProviderForLocalDefaultConfig(name: String) async {
+        await self.selectProxyProviderForLocalDefaultConfig(
+            name: name,
+            providerListName: self.localDefaultDownloadProviderListName)
+    }
+
+    private func selectProxyProviderForLocalDefaultConfig(name: String, providerListName: String) async {
         guard self.canBindProviderToSelectedLocalDefaultConfig else {
             self.appendLog(level: "info", message: tr("app.provider.local_only"))
             return
@@ -232,24 +308,71 @@ extension AppViewModel {
 
         do {
             let content = try String(contentsOf: selectedURL, encoding: .utf8)
+            let effectiveProviderListName = self.effectiveProviderListName(
+                requestedListName: providerListName,
+                content: content)
             let updatedContent = try LocalProxyProviderBindingMutator().bindProvider(
                 named: providerName,
-                toProviderListNamed: self.localDefaultProviderListName,
+                toProviderListNamed: effectiveProviderListName,
+                enablingProvidersFromListNames: self.localDefaultProviderListNames,
                 in: content)
             guard updatedContent != content else {
-                self.selectedProxyProviderName = providerName
+                self.applySelectedProxyProviderName(providerName, providerListName: effectiveProviderListName)
                 return
             }
 
             try self.writeConfigData(Data(updatedContent.utf8), to: selectedURL)
-            self.selectedProxyProviderName = providerName
+            self.applySelectedProxyProviderName(providerName, providerListName: effectiveProviderListName)
             await self.reloadCurrentConfigAfterInternalFileMutation(updatedFileNames: [selectedURL.lastPathComponent])
             self.appendLog(
                 level: "info",
-                message: tr("app.provider.bind.success", self.localDefaultProviderListName, providerName))
+                message: tr("app.provider.bind.success", effectiveProviderListName, providerName))
         } catch {
             self.appendLog(level: "error", message: tr("app.provider.bind.failed", providerName, error.localizedDescription))
         }
+    }
+
+    private func applySelectedProxyProviderName(_ providerName: String?, providerListName: String) {
+        if providerListName == self.localDefaultDownloadProviderListName
+            || providerListName == self.localDefaultLegacyDownloadProviderListName
+        {
+            self.selectedDownloadProxyProviderName = providerName
+        } else {
+            self.selectedCommonProxyProviderName = providerName
+        }
+    }
+
+    private func selectedProviderName(
+        using mutator: LocalProxyProviderBindingMutator,
+        primaryListName: String,
+        legacyListName: String,
+        content: String) -> String?
+    {
+        mutator.selectedProviderName(inProviderListNamed: primaryListName, content: content)
+            ?? mutator.selectedProviderName(inProviderListNamed: legacyListName, content: content)
+    }
+
+    private func effectiveProviderListName(requestedListName: String, content: String) -> String {
+        let mutator = LocalProxyProviderBindingMutator()
+        let primaryListName: String
+        let legacyListName: String
+        if requestedListName == self.localDefaultDownloadProviderListName
+            || requestedListName == self.localDefaultLegacyDownloadProviderListName
+        {
+            primaryListName = self.localDefaultDownloadProviderListName
+            legacyListName = self.localDefaultLegacyDownloadProviderListName
+        } else {
+            primaryListName = self.localDefaultCommonProviderListName
+            legacyListName = self.localDefaultLegacyCommonProviderListName
+        }
+
+        if mutator.selectedProviderName(inProviderListNamed: primaryListName, content: content) != nil {
+            return primaryListName
+        }
+        if mutator.selectedProviderName(inProviderListNamed: legacyListName, content: content) != nil {
+            return legacyListName
+        }
+        return primaryListName
     }
 
     func deleteProxyProviderFromLocalDefaultConfig(name: String) async {
@@ -271,8 +394,17 @@ extension AppViewModel {
             let content = try String(contentsOf: selectedURL, encoding: .utf8)
             let bindingMutator = LocalProxyProviderBindingMutator()
             let definitionMutator = LocalProxyProviderDefinitionMutator()
-            let currentProvider = bindingMutator.selectedProviderName(
-                inProviderListNamed: self.localDefaultProviderListName,
+            let effectiveCommonProviderListName = self.effectiveProviderListName(
+                requestedListName: self.localDefaultCommonProviderListName,
+                content: content)
+            let effectiveDownloadProviderListName = self.effectiveProviderListName(
+                requestedListName: self.localDefaultDownloadProviderListName,
+                content: content)
+            let currentCommonProvider = bindingMutator.selectedProviderName(
+                inProviderListNamed: effectiveCommonProviderListName,
+                content: content)
+            let currentDownloadProvider = bindingMutator.selectedProviderName(
+                inProviderListNamed: effectiveDownloadProviderListName,
                 content: content)
             let providers = try definitionMutator.providerNames(in: content)
             let remainingProviders = providers.filter { $0 != providerName }
@@ -283,19 +415,39 @@ extension AppViewModel {
             }
 
             var updatedContent = try definitionMutator.removeProvider(named: providerName, from: content)
-            if currentProvider == providerName,
+            var reboundListNames: [String] = []
+            if currentCommonProvider == providerName,
                let fallbackProvider = remainingProviders.first
             {
                 updatedContent = try bindingMutator.bindProvider(
                     named: fallbackProvider,
-                    toProviderListNamed: self.localDefaultProviderListName,
+                    toProviderListNamed: effectiveCommonProviderListName,
+                    enablingProvidersFromListNames: self.localDefaultProviderListNames,
                     in: updatedContent)
-                self.selectedProxyProviderName = fallbackProvider
+                self.selectedCommonProxyProviderName = fallbackProvider
+                reboundListNames.append(effectiveCommonProviderListName)
+            } else if currentCommonProvider != providerName {
+                self.selectedCommonProxyProviderName = currentCommonProvider
+            }
+            if currentDownloadProvider == providerName,
+               let fallbackProvider = remainingProviders.first
+            {
+                updatedContent = try bindingMutator.bindProvider(
+                    named: fallbackProvider,
+                    toProviderListNamed: effectiveDownloadProviderListName,
+                    enablingProvidersFromListNames: self.localDefaultProviderListNames,
+                    in: updatedContent)
+                self.selectedDownloadProxyProviderName = fallbackProvider
+                reboundListNames.append(effectiveDownloadProviderListName)
+            } else if currentDownloadProvider != providerName {
+                self.selectedDownloadProxyProviderName = currentDownloadProvider
+            }
+
+            if let fallbackProvider = remainingProviders.first, !reboundListNames.isEmpty {
                 self.appendLog(
                     level: "info",
-                    message: tr("app.provider.delete.rebound", providerName, self.localDefaultProviderListName, fallbackProvider))
+                    message: tr("app.provider.delete.rebound", providerName, reboundListNames.joined(separator: ", "), fallbackProvider))
             } else {
-                self.selectedProxyProviderName = currentProvider
                 self.appendLog(level: "info", message: tr("app.provider.delete.success", providerName))
             }
 
@@ -308,6 +460,11 @@ extension AppViewModel {
     }
 
     func addProxyProviderToLocalDefaultConfig() async {
+        guard let input = self.promptProxyProviderInput() else { return }
+        await self.addProxyProviderToLocalDefaultConfig(name: input.name, url: input.url)
+    }
+
+    func addProxyProviderToLocalDefaultConfig(name: String, url: String) async {
         guard self.canBindProviderToSelectedLocalDefaultConfig else {
             self.appendLog(level: "info", message: tr("app.provider.local_only"))
             return
@@ -316,10 +473,9 @@ extension AppViewModel {
             self.appendLog(level: "error", message: tr("app.provider.local_config_unresolved"))
             return
         }
-        guard let input = self.promptProxyProviderInput() else { return }
 
-        let providerName = input.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let urlText = input.url.trimmingCharacters(in: .whitespacesAndNewlines)
+        let providerName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let urlText = url.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !providerName.isEmpty else {
             self.presentProxyProviderMutationAlert(success: false, message: tr("app.provider.add.invalid_name"))
             return
@@ -350,6 +506,346 @@ extension AppViewModel {
                 success: false,
                 message: tr("app.provider.add.failed", providerName, error.localizedDescription))
         }
+    }
+
+    func addRuleToSelectedLocalConfig() async {
+        guard let input = self.promptLocalRuleInput() else { return }
+        await self.addRuleToSelectedLocalConfig(ruleText: input.rule)
+    }
+
+    @discardableResult
+    func addRuleToSelectedLocalConfig(ruleText rawRuleText: String) async -> Bool {
+        guard self.canEditRulesInSelectedLocalConfig else {
+            self.appendLog(level: "info", message: tr("app.rule.local_only"))
+            return false
+        }
+        guard let selectedURL = self.configRepository.selectedConfig else {
+            self.appendLog(level: "error", message: tr("app.rule.local_config_unresolved"))
+            return false
+        }
+        let ruleText = rawRuleText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        do {
+            let mutator = LocalRuleMutator()
+            let content = try String(contentsOf: selectedURL, encoding: .utf8)
+            let input = try mutator.input(fromRawRule: ruleText)
+            let updatedContent = try mutator.addRule(ruleText, to: content)
+            guard updatedContent != content else { return false }
+
+            try self.writeConfigData(Data(updatedContent.utf8), to: selectedURL)
+            self.markInternalConfigFileMutationHandled()
+            self.insertLocalRulePresentation(input)
+            self.scheduleRuleConfigApplyAfterLocalMutation()
+            self.appendLog(level: "info", message: tr("app.rule.add.success", ruleText))
+            return true
+        } catch {
+            self.presentRuleMutationAlert(
+                success: false,
+                message: tr("app.rule.add.failed", ruleText, error.localizedDescription))
+            return false
+        }
+    }
+
+    func deleteRuleFromSelectedLocalConfig(_ rule: RuleItem) async {
+        guard self.canEditRulesInSelectedLocalConfig else {
+            self.appendLog(level: "info", message: tr("app.rule.local_only"))
+            return
+        }
+        guard let selectedURL = self.configRepository.selectedConfig else {
+            self.appendLog(level: "error", message: tr("app.rule.local_config_unresolved"))
+            return
+        }
+        guard let input = self.localRuleMutationInput(from: rule) else {
+            self.presentRuleMutationAlert(success: false, message: tr("app.rule.error.invalid"))
+            return
+        }
+        let ruleText = [input.type, input.payload, input.policy].joined(separator: ",")
+
+        do {
+            let content = try String(contentsOf: selectedURL, encoding: .utf8)
+            let updatedContent = try LocalRuleMutator().removeRule(matching: input, from: content)
+            guard updatedContent != content else { return }
+
+            try self.writeConfigData(Data(updatedContent.utf8), to: selectedURL)
+            self.markInternalConfigFileMutationHandled()
+            self.removeLocalRulePresentation(matching: input)
+            self.scheduleRuleConfigApplyAfterLocalMutation()
+            self.appendLog(level: "info", message: tr("app.rule.delete.success", ruleText))
+        } catch {
+            self.presentRuleMutationAlert(
+                success: false,
+                message: tr("app.rule.delete.failed", ruleText, error.localizedDescription))
+        }
+    }
+
+    func moveRuleInSelectedLocalConfig(_ sourceRule: RuleItem, before targetRule: RuleItem) async {
+        guard self.canEditRulesInSelectedLocalConfig else {
+            self.appendLog(level: "info", message: tr("app.rule.local_only"))
+            return
+        }
+        guard let selectedURL = self.configRepository.selectedConfig else {
+            self.appendLog(level: "error", message: tr("app.rule.local_config_unresolved"))
+            return
+        }
+        guard let source = self.localRuleMutationInput(from: sourceRule),
+              let target = self.localRuleMutationInput(from: targetRule)
+        else {
+            self.presentRuleMutationAlert(success: false, message: tr("app.rule.error.invalid"))
+            return
+        }
+        do {
+            let content = try String(contentsOf: selectedURL, encoding: .utf8)
+            let updatedContent = try LocalRuleMutator().moveRule(matching: source, before: target, in: content)
+            guard updatedContent != content else { return }
+
+            try self.writeConfigData(Data(updatedContent.utf8), to: selectedURL)
+            self.markInternalConfigFileMutationHandled()
+            self.moveLocalRulePresentation(source: source, before: target)
+            self.scheduleRuleConfigApplyAfterLocalMutation()
+            self.appendLog(level: "info", message: tr("app.rule.move.success"))
+        } catch {
+            self.presentRuleMutationAlert(
+                success: false,
+                message: tr("app.rule.move.failed", error.localizedDescription))
+        }
+    }
+
+    func moveRuleInSelectedLocalConfig(_ sourceRule: RuleItem, after targetRule: RuleItem) async {
+        guard self.canEditRulesInSelectedLocalConfig else {
+            self.appendLog(level: "info", message: tr("app.rule.local_only"))
+            return
+        }
+        guard let selectedURL = self.configRepository.selectedConfig else {
+            self.appendLog(level: "error", message: tr("app.rule.local_config_unresolved"))
+            return
+        }
+        guard let source = self.localRuleMutationInput(from: sourceRule),
+              let target = self.localRuleMutationInput(from: targetRule)
+        else {
+            self.presentRuleMutationAlert(success: false, message: tr("app.rule.error.invalid"))
+            return
+        }
+        do {
+            let content = try String(contentsOf: selectedURL, encoding: .utf8)
+            let updatedContent = try LocalRuleMutator().moveRule(matching: source, after: target, in: content)
+            guard updatedContent != content else { return }
+
+            try self.writeConfigData(Data(updatedContent.utf8), to: selectedURL)
+            self.markInternalConfigFileMutationHandled()
+            self.moveLocalRulePresentation(source: source, after: target)
+            self.scheduleRuleConfigApplyAfterLocalMutation()
+            self.appendLog(level: "info", message: tr("app.rule.move.success"))
+        } catch {
+            self.presentRuleMutationAlert(
+                success: false,
+                message: tr("app.rule.move.failed", error.localizedDescription))
+        }
+    }
+
+    private func localRuleMutationInput(from rule: RuleItem) -> LocalRuleMutationInput? {
+        guard let type = rule.type.trimmedNonEmpty,
+              let payload = rule.payload.trimmedNonEmpty,
+              let policy = rule.proxy.trimmedNonEmpty
+        else {
+            return nil
+        }
+        return LocalRuleMutationInput(type: type, payload: payload, policy: policy)
+    }
+
+    private func scheduleRuleConfigApplyAfterLocalMutation() {
+        self.pendingRuleConfigApplyTask?.cancel()
+        self.pendingRuleConfigApplyTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: self?.ruleConfigApplyDebounceNanoseconds ?? 5_000_000_000)
+            } catch {
+                return
+            }
+            await self?.applyPendingRuleConfigMutation()
+        }
+    }
+
+    private func applyPendingRuleConfigMutation() async {
+        self.pendingRuleConfigApplyTask = nil
+        guard !self.isRemoteTarget, self.isRuntimeRunning else { return }
+        guard !self.isCoreActionProcessing else {
+            self.scheduleRuleConfigApplyAfterLocalMutation()
+            return
+        }
+
+        self.cancelProviderRefresh(reason: "rule config apply requested")
+        await self.reloadConfig()
+        await self.refreshFromAPI(includeSlowCalls: false)
+    }
+
+    private func insertLocalRulePresentation(_ input: LocalRuleMutationInput) {
+        let mutator = LocalRuleMutator()
+        let normalizedInput = mutator.normalizedInput(input)
+        guard !self.ruleItems.contains(where: { self.localRule($0, matches: normalizedInput, mutator: mutator) }) else {
+            return
+        }
+
+        self.ruleItems.insert(
+            RuleItem(
+                type: normalizedInput.type,
+                payload: normalizedInput.payload,
+                proxy: normalizedInput.policy,
+                extra: nil),
+            at: 0)
+        if self.ruleItems.count > RulesSummary.retainedRuleLimit {
+            self.ruleItems.removeLast(self.ruleItems.count - RulesSummary.retainedRuleLimit)
+        }
+        self.rulesCount += 1
+    }
+
+    private func removeLocalRulePresentation(matching input: LocalRuleMutationInput) {
+        let mutator = LocalRuleMutator()
+        let normalizedInput = mutator.normalizedInput(input)
+        let previousCount = self.ruleItems.count
+        self.ruleItems.removeAll { self.localRule($0, matches: normalizedInput, mutator: mutator) }
+        if self.ruleItems.count != previousCount {
+            self.rulesCount = max(0, self.rulesCount - 1)
+        }
+    }
+
+    private func moveLocalRulePresentation(source: LocalRuleMutationInput, before target: LocalRuleMutationInput) {
+        let mutator = LocalRuleMutator()
+        let normalizedSource = mutator.normalizedInput(source)
+        let normalizedTarget = mutator.normalizedInput(target)
+        guard let sourceIndex = self.ruleItems.firstIndex(where: {
+            self.localRule($0, matches: normalizedSource, mutator: mutator)
+        }),
+            var targetIndex = self.ruleItems.firstIndex(where: {
+                self.localRule($0, matches: normalizedTarget, mutator: mutator)
+            })
+        else {
+            return
+        }
+
+        let item = self.ruleItems.remove(at: sourceIndex)
+        if sourceIndex < targetIndex {
+            targetIndex -= 1
+        }
+        self.ruleItems.insert(item, at: targetIndex)
+    }
+
+    private func moveLocalRulePresentation(source: LocalRuleMutationInput, after target: LocalRuleMutationInput) {
+        let mutator = LocalRuleMutator()
+        let normalizedSource = mutator.normalizedInput(source)
+        let normalizedTarget = mutator.normalizedInput(target)
+        guard let sourceIndex = self.ruleItems.firstIndex(where: {
+            self.localRule($0, matches: normalizedSource, mutator: mutator)
+        }),
+            var targetIndex = self.ruleItems.firstIndex(where: {
+                self.localRule($0, matches: normalizedTarget, mutator: mutator)
+            })
+        else {
+            return
+        }
+
+        let item = self.ruleItems.remove(at: sourceIndex)
+        if sourceIndex < targetIndex {
+            targetIndex -= 1
+        }
+        self.ruleItems.insert(item, at: min(targetIndex + 1, self.ruleItems.count))
+    }
+
+    private func localRule(
+        _ rule: RuleItem,
+        matches input: LocalRuleMutationInput,
+        mutator: LocalRuleMutator) -> Bool
+    {
+        guard let candidate = self.localRuleMutationInput(from: rule) else { return false }
+        return mutator.normalizedInput(candidate) == input
+    }
+
+    private func promptLocalRuleInput() -> LocalRuleInput? {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 56))
+
+        let labelY: CGFloat = 38
+        let fieldY: CGFloat = 8
+        let typeWidth: CGFloat = 132
+        let payloadWidth: CGFloat = 160
+        let policyWidth: CGFloat = 112
+        let gap: CGFloat = 8
+
+        let typeLabel = NSTextField(labelWithString: tr("app.rule.add.type_label"))
+        typeLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        typeLabel.frame = NSRect(x: 0, y: labelY, width: typeWidth, height: 16)
+
+        let payloadLabel = NSTextField(labelWithString: tr("app.rule.add.payload_label"))
+        payloadLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        payloadLabel.frame = NSRect(x: typeWidth + gap, y: labelY, width: payloadWidth, height: 16)
+
+        let policyLabel = NSTextField(labelWithString: tr("app.rule.add.policy_label"))
+        policyLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        policyLabel.frame = NSRect(x: typeWidth + payloadWidth + (gap * 2), y: labelY, width: policyWidth, height: 16)
+
+        let typeCombo = NSComboBox(frame: NSRect(x: 0, y: fieldY, width: typeWidth, height: 24))
+        typeCombo.addItems(withObjectValues: LocalRuleFormOptions.ruleTypes)
+        typeCombo.completes = true
+        typeCombo.numberOfVisibleItems = min(8, LocalRuleFormOptions.ruleTypes.count)
+        typeCombo.selectItem(at: 0)
+
+        let payloadField = NSTextField(frame: NSRect(x: typeWidth + gap, y: fieldY, width: payloadWidth, height: 24))
+        payloadField.placeholderString = tr("app.rule.add.payload_placeholder")
+
+        let policyOptions = self.localRulePolicyOptions()
+        let policyCombo = NSComboBox(frame: NSRect(x: typeWidth + payloadWidth + (gap * 2), y: fieldY, width: policyWidth, height: 24))
+        policyCombo.addItems(withObjectValues: policyOptions)
+        policyCombo.completes = true
+        policyCombo.numberOfVisibleItems = min(10, policyOptions.count)
+        policyCombo.stringValue = policyOptions.first ?? "DIRECT"
+
+        container.addSubview(typeLabel)
+        container.addSubview(payloadLabel)
+        container.addSubview(policyLabel)
+        container.addSubview(typeCombo)
+        container.addSubview(payloadField)
+        container.addSubview(policyCombo)
+
+        let response = self.runModalAlert(
+            style: .informational,
+            message: tr("ui.action.add_rule"),
+            informative: tr("app.rule.add.prompt"),
+            buttons: [tr("ui.action.add_exception"), tr("ui.action.cancel")]) {
+                $0.accessoryView = container
+                $0.window.initialFirstResponder = payloadField
+            }
+        guard response == .alertFirstButtonReturn else { return nil }
+
+        let type = typeCombo.stringValue.trimmed
+        let payload = payloadField.stringValue.trimmed
+        let policy = policyCombo.stringValue.trimmed
+        return LocalRuleInput(rule: [type, payload, policy].joined(separator: ","))
+    }
+
+    private func localRulePolicyOptions() -> [String] {
+        var options: [String] = []
+        var seen: Set<String> = []
+        for policy in LocalRuleFormOptions.policies + self.proxyGroups.map(\.name).sorted() {
+            guard let normalized = policy.trimmedNonEmpty else { continue }
+            let key = normalized.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            options.append(normalized)
+        }
+        return options
+    }
+
+    private func confirmDeleteRule(_ rule: String) -> Bool {
+        self.runModalAlert(
+            style: .warning,
+            message: tr("app.rule.delete.confirm.title"),
+            informative: tr("app.rule.delete.confirm.message", rule),
+            buttons: [tr("ui.action.delete"), tr("ui.action.cancel")]) == .alertFirstButtonReturn
+    }
+
+    private func presentRuleMutationAlert(success: Bool, message: String) {
+        self.appendLog(level: success ? "info" : "error", message: message)
+        self.runModalAlert(
+            style: success ? .informational : .warning,
+            message: tr("ui.tab.rules"),
+            informative: message,
+            buttons: [tr("ui.action.ok")])
     }
 
     private func promptProxyProviderInput() -> ProxyProviderInput? {
@@ -446,6 +942,17 @@ extension AppViewModel {
             .flatMap { $0 == "-" || $0.caseInsensitiveCompare("unknown") == .orderedSame ? nil : $0 }
             ?? "unknown"
         return "clash-verge/\(normalizedVersion)"
+    }
+
+    func suggestedProxyProviderName(from urlString: String) async -> String? {
+        await withCheckedContinuation { continuation in
+            ProxyProviderNameResolver.suggestedName(
+                from: urlString,
+                userAgent: self.proxyProviderAutofillUserAgent())
+            {
+                continuation.resume(returning: $0)
+            }
+        }
     }
 
     private func confirmDeleteProxyProvider(named providerName: String) -> Bool {

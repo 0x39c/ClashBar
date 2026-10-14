@@ -43,6 +43,13 @@ extension AppViewModel {
         self.configDirectoryMonitorExpiresAt = nil
     }
 
+    func markInternalConfigFileMutationHandled() {
+        guard !self.isRemoteTarget else { return }
+        _ = self.ensureConfigDirectoryAvailable()
+        self.configFileSignatureSnapshot = self.currentConfigFileSignatureSnapshot()
+        self.pendingConfigChangeRestart = false
+    }
+
     private func handleConfigDirectoryChangesIfNeeded() async {
         guard !self.isRemoteTarget else { return }
         if let expiresAt = self.configDirectoryMonitorExpiresAt, Date() >= expiresAt {

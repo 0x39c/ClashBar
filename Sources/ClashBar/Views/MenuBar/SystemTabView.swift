@@ -18,6 +18,7 @@ struct SystemTabView: TranslatingView {
     @EnvironmentObject var appViewModel: AppViewModel
     @State private var isExceptionsExpanded = false
     @State private var isProxyPortsExpanded = false
+    @State private var isWebDAVSyncExpanded = false
     @State private var proxyPortDraftValues: [String: String] = [:]
     @State private var lastFocusedProxyPortKey: String?
     @FocusState private var focusedProxyPortKey: String?
@@ -210,19 +211,31 @@ struct SystemTabView: TranslatingView {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    func maintenanceActionButton(_ title: String, symbol: String, action: @escaping () async -> Void) -> some View {
-        Button {
-            Task { await action() }
+    func maintenanceActionButton(
+        _ title: String,
+        symbol: String,
+        isEnabled: Bool? = nil,
+        isLoading: Bool = false,
+        action: @escaping @MainActor () async -> Void) -> some View
+    {
+        let enabled = isEnabled ?? self.maintenanceActionEnabled
+
+        return Button {
+            Task { @MainActor in await action() }
         } label: {
-            Label {
+            HStack(spacing: T.space4) {
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: symbol)
+                }
                 Text(title)
                     .lineLimit(1)
                     .multilineTextAlignment(.center)
-            } icon: {
-                Image(systemName: symbol)
             }
             .font(.app(size: T.FontSize.caption, weight: .semibold))
-            .foregroundStyle(self.maintenanceActionEnabled ? nativeSecondaryLabel : nativeTertiaryLabel)
+            .foregroundStyle(enabled ? nativeSecondaryLabel : nativeTertiaryLabel)
             .padding(.horizontal, T.space6)
             .padding(.vertical, T.space4)
             .frame(maxWidth: .infinity, alignment: .center)
@@ -236,8 +249,8 @@ struct SystemTabView: TranslatingView {
             }
         }
         .buttonStyle(.plain)
-        .disabled(!self.maintenanceActionEnabled)
-        .opacity(self.maintenanceActionEnabled ? 1 : 0.62)
+        .disabled(!enabled || isLoading)
+        .opacity(enabled ? 1 : 0.62)
     }
 
     func settingsInlineActionButton(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
@@ -258,6 +271,34 @@ struct SystemTabView: TranslatingView {
                 }
         }
         .buttonStyle(.plain)
+    }
+
+    func webDAVSettingsField(
+        _ titleKey: String,
+        placeholder: String = "",
+        text: Binding<String>,
+        onChange: @escaping () -> Void = {},
+        secure: Bool = false) -> some View
+    {
+        VStack(alignment: .leading, spacing: T.space2) {
+            Text(self.tr(titleKey))
+                .font(.app(size: T.FontSize.caption, weight: .medium))
+                .foregroundStyle(nativeSecondaryLabel)
+            if secure {
+                SecureField(placeholder, text: text)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                    .onChange(of: text.wrappedValue) { _ in onChange() }
+            } else {
+                TextField(placeholder, text: text)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                    .onChange(of: text.wrappedValue) { _ in onChange() }
+            }
+        }
+        .font(.app(size: T.FontSize.body, weight: .regular))
+        .foregroundStyle(nativePrimaryLabel)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     func settingsFeedbackBanner(text: String, color: Color, symbol: String) -> some View {
@@ -327,6 +368,24 @@ struct SystemTabView: TranslatingView {
 
     var isSystemProxyExceptionsSyncing: Bool {
         self.appViewModel.settingsSyncingKey == "system-proxy-exceptions"
+    }
+
+    var isWebDAVUploading: Bool {
+        self.appViewModel.webDAVConfigSyncInFlight == .upload
+    }
+
+    var isWebDAVDownloading: Bool {
+        self.appViewModel.webDAVConfigSyncInFlight == .download
+    }
+
+    var webDAVFeedbackState: (message: String, color: Color, symbol: String)? {
+        guard let feedback = self.appViewModel.webDAVConfigSyncFeedback else { return nil }
+        switch feedback.kind {
+        case .success:
+            return (feedback.message, nativePositive.opacity(T.Opacity.solid), "checkmark.circle.fill")
+        case .error:
+            return (feedback.message, nativeCritical.opacity(T.Opacity.solid), "exclamationmark.triangle.fill")
+        }
     }
 
     var settingsFeedbackState: (message: String, color: Color, symbol: String)? {
@@ -622,6 +681,122 @@ struct SystemTabView: TranslatingView {
                 .opacity(self.appViewModel.isControllerAccessEnabled ? 1 : 0.62)
             }
             .animation(.spring(response: 0.30, dampingFraction: 0.80), value: self.isProxyPortsExpanded)
+            .cleanContentCard()
+
+            VStack(spacing: 0) {
+                Button {
+                    self.endProxyPortEditing()
+                    self.isWebDAVSyncExpanded.toggle()
+                } label: {
+                    HStack(spacing: T.space6) {
+                        Image(systemName: "externaldrive.connected.to.line.below")
+                            .font(.app(size: T.FontSize.caption, weight: .semibold))
+                            .foregroundStyle(nativeTertiaryLabel)
+                        Text(self.tr("ui.section.webdav_config_sync"))
+                            .font(.app(size: T.FontSize.body, weight: .bold))
+                            .foregroundStyle(nativeTertiaryLabel)
+                            .textCase(.uppercase)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.app(size: T.FontSize.caption, weight: .semibold))
+                            .foregroundStyle(nativeTertiaryLabel)
+                            .rotationEffect(.degrees(self.isWebDAVSyncExpanded ? 90 : 0))
+                    }
+                    .menuRowPadding(vertical: T.space2)
+                    .contentShape(Rectangle())
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+
+                VStack(alignment: .leading, spacing: T.space6) {
+                    self.webDAVSettingsField(
+                        "ui.webdav.endpoint",
+                        placeholder: "https://example.com/dav/",
+                        text: self.$appViewModel.webDAVConfigSyncSettings.endpoint,
+                        onChange: self.appViewModel.persistWebDAVConfigSyncSettings)
+
+                    HStack(alignment: .top, spacing: T.space6) {
+                        self.webDAVSettingsField(
+                            "ui.webdav.username",
+                            text: self.$appViewModel.webDAVConfigSyncSettings.username,
+                            onChange: self.appViewModel.persistWebDAVConfigSyncSettings)
+                        self.webDAVSettingsField(
+                            "ui.webdav.password",
+                            text: self.$appViewModel.webDAVConfigSyncSettings.password,
+                            onChange: self.appViewModel.persistWebDAVConfigSyncSettings,
+                            secure: true)
+                    }
+
+                    HStack(alignment: .top, spacing: T.space6) {
+                        self.webDAVSettingsField(
+                            "ui.webdav.remote_file",
+                            placeholder: self.appViewModel.selectedConfigName,
+                            text: self.$appViewModel.webDAVConfigSyncSettings.remoteFileName,
+                            onChange: self.appViewModel.persistWebDAVConfigSyncSettings)
+                        VStack(alignment: .leading, spacing: T.space2) {
+                            Text(self.tr("ui.webdav.remote_directory"))
+                                .font(.app(size: T.FontSize.caption, weight: .medium))
+                                .foregroundStyle(nativeSecondaryLabel)
+                            Label("ClashBar", systemImage: "folder")
+                                .font(.app(size: T.FontSize.caption, weight: .semibold))
+                                .foregroundStyle(nativeSecondaryLabel)
+                                .padding(.horizontal, T.space6)
+                                .padding(.vertical, T.space4)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background {
+                                    RoundedRectangle(cornerRadius: T.cornerRadius, style: .continuous)
+                                        .fill(nativeBadgeFill)
+                                        .overlay {
+                                            RoundedRectangle(cornerRadius: T.cornerRadius, style: .continuous)
+                                                .stroke(nativeControlBorder.opacity(0.28), lineWidth: T.stroke)
+                                        }
+                                }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    Text(self.tr("ui.webdav.hint"))
+                        .font(.app(size: T.FontSize.caption, weight: .regular))
+                        .foregroundStyle(nativeSecondaryLabel)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack(spacing: T.space6) {
+                        self.maintenanceActionButton(
+                            self.tr("ui.action.webdav_upload"),
+                            symbol: "arrow.up.doc",
+                            isEnabled: self.appViewModel.canSyncSelectedConfigWithWebDAV,
+                            isLoading: self.isWebDAVUploading)
+                        {
+                            await self.appViewModel.uploadSelectedConfigToWebDAV()
+                        }
+                    }
+
+                    HStack(spacing: T.space6) {
+                        self.maintenanceActionButton(
+                            self.tr("ui.action.webdav_download"),
+                            symbol: "arrow.down.doc",
+                            isEnabled: self.appViewModel.canSyncSelectedConfigWithWebDAV,
+                            isLoading: self.isWebDAVDownloading)
+                        {
+                            await self.appViewModel.downloadSelectedConfigFromWebDAV()
+                        }
+                    }
+
+                    if let feedback = self.webDAVFeedbackState {
+                        self.settingsFeedbackBanner(
+                            text: feedback.message,
+                            color: feedback.color,
+                            symbol: feedback.symbol)
+                    }
+                }
+                .menuRowPadding(vertical: T.space4)
+                .frame(maxHeight: self.isWebDAVSyncExpanded ? .infinity : 0, alignment: .top)
+                .clipped()
+                .opacity(self.isWebDAVSyncExpanded ? 1 : 0)
+                .disabled(self.appViewModel.isRemoteTarget)
+                .opacity(self.appViewModel.isRemoteTarget ? 0.62 : 1)
+            }
+            .animation(.spring(response: 0.30, dampingFraction: 0.80), value: self.isWebDAVSyncExpanded)
             .cleanContentCard()
 
             VStack(spacing: 0) {

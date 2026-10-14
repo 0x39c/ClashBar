@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import SwiftUI
 
 struct ConnectionsTabView: TranslatingView {
@@ -7,8 +8,12 @@ struct ConnectionsTabView: TranslatingView {
     @AppStorage("clashbar.connections.transport_filter") private var storedTransportFilterRawValue =
         ConnectionsTransportFilter.all.rawValue
     @AppStorage("clashbar.connections.sort_option") private var storedSortOptionRawValue =
-        ConnectionsSortOption.default.rawValue
+        ConnectionsSortOption.totalDesc.rawValue
     @ObservedObject var viewModel: ConnectionsViewModel
+    @State private var ruleDraftForAdd: RuleDraftForAdd?
+    @State private var selectedSubview: ConnectionsSubview = .active
+    @State private var largeTrafficThresholdText: String = "10MB"
+    @FocusState private var isLargeTrafficThresholdFocused: Bool
 
     private enum ConnectionsLayout {
         static let topLineSpacing: CGFloat = MenuBarLayoutTokens.space2
@@ -17,43 +22,76 @@ struct ConnectionsTabView: TranslatingView {
         static let rowLineHeight: CGFloat = 16
         static let topRuleMinWidth: CGFloat = 26
         static let topPayloadMinWidth: CGFloat = 14
+        static let rowTrailingActionWidth: CGFloat = 12
+        static let largeTrafficActionButtonSize: CGFloat = 18
+        static let largeTrafficActionsWidth: CGFloat =
+            (largeTrafficActionButtonSize * 2) + MenuBarLayoutTokens.space4
         static let rowContentWidth: CGFloat =
             MenuBarLayoutTokens.panelWidth
                 - (MenuBarLayoutTokens.space8 * 2)
                 - (MenuBarLayoutTokens.space4 * 2)
                 - MenuBarLayoutTokens.rowLeadingIcon
                 - (MenuBarLayoutTokens.space6 * 2)
-                - 12
+                - rowTrailingActionWidth
+        static let largeTrafficRowContentWidth: CGFloat =
+            max(rowContentWidth - largeTrafficActionsWidth + rowTrailingActionWidth, 0)
     }
 
     private static var textWidthCache: [String: CGFloat] = [:]
+
+    private enum ConnectionsSubview: String, CaseIterable, Identifiable {
+        case active
+        case largeTraffic
+
+        var id: String {
+            rawValue
+        }
+    }
+
+    private struct RuleDraftForAdd: Identifiable {
+        let id = UUID()
+        let ruleType: String
+        let payload: String
+        let policy: String
+        let candidate: LargeTrafficConnectionCandidate?
+    }
 
     var body: some View {
         let connections = self.viewModel.visibleConnections
 
         return VStack(alignment: .leading, spacing: MenuBarLayoutTokens.space6) {
-            self.connectionsControlCard
-
-            if connections.isEmpty {
-                emptyCard(self.tr("ui.empty.connections"))
-            } else {
-                MeasurementAwareVStack(spacing: 0) {
-                    SeparatedForEach(data: connections, id: \.id, separator: nativeSeparator) { conn in
-                        self.connectionRow(conn)
-                    }
-                }
-                .menuRowPadding(vertical: MenuBarLayoutTokens.space2)
-                .cleanContentCard()
-            }
+            self.connectionsSubviewTabs
+            self.connectionsSubviewContent(connections)
         }
         .onAppear {
             self.restoreStoredPreferences()
+            self.syncLargeTrafficThresholdTextFromModel()
             self.refreshData()
         }
         .onChange(of: self.connectionsStore.connections) { _ in self.refreshData() }
         .onChange(of: self.viewModel.filterText) { _ in self.refreshData() }
         .onChange(of: self.viewModel.transportFilter) { _ in self.refreshData() }
         .onChange(of: self.viewModel.sortOption) { _ in self.refreshData() }
+        .onChange(of: self.appViewModel.largeTrafficThresholdBytes) { _ in
+            self.syncLargeTrafficThresholdTextFromModel()
+        }
+        .onChange(of: self.isLargeTrafficThresholdFocused) { focused in
+            if !focused {
+                self.applyLargeTrafficThresholdText()
+            }
+        }
+        .sheet(item: self.$ruleDraftForAdd) { draft in
+            AddRuleSheet(
+                initialRuleType: draft.ruleType,
+                initialPayload: draft.payload,
+                initialPolicy: draft.policy)
+            {
+                if let candidate = draft.candidate {
+                    self.appViewModel.removeLargeTrafficConnectionCandidate(candidate)
+                }
+            }
+            .environmentObject(self.appViewModel)
+        }
     }
 
     private func refreshData() {
@@ -64,7 +102,9 @@ struct ConnectionsTabView: TranslatingView {
 
     private func restoreStoredPreferences() {
         let transportFilter = ConnectionsTransportFilter(rawValue: self.storedTransportFilterRawValue) ?? .all
-        let sortOption = ConnectionsSortOption(rawValue: self.storedSortOptionRawValue) ?? .default
+        let sortOption = self.storedSortOptionRawValue == "default"
+            ? ConnectionsSortOption.totalDesc
+            : (ConnectionsSortOption(rawValue: self.storedSortOptionRawValue) ?? .totalDesc)
 
         self.viewModel.transportFilter = transportFilter
         self.viewModel.sortOption = sortOption
@@ -87,11 +127,224 @@ struct ConnectionsTabView: TranslatingView {
         self.storedSortOptionRawValue = sortOption.rawValue
     }
 
+    private func ruleDraft(for candidate: LargeTrafficConnectionCandidate) -> RuleDraftForAdd {
+        RuleDraftForAdd(
+            ruleType: candidate.ruleType,
+            payload: candidate.payload,
+            policy: candidate.policy,
+            candidate: candidate)
+    }
+
+    private func ruleDraft(for connection: ConnectionSummary) -> RuleDraftForAdd? {
+        guard let host = self.appViewModel.resolvedConnectionHost(for: connection) else { return nil }
+        let ruleType = Self.ruleType(forRuleHost: host)
+        return RuleDraftForAdd(
+            ruleType: ruleType,
+            payload: Self.rulePayload(forRuleHost: host, ruleType: ruleType),
+            policy: self.appViewModel.effectiveLargeTrafficRuleTargetPolicy,
+            candidate: nil)
+    }
+
+    private static func ruleType(forRuleHost host: String) -> String {
+        self.isIPAddress(host) ? "IP-CIDR" : "DOMAIN-SUFFIX"
+    }
+
+    private static func rulePayload(forRuleHost host: String, ruleType: String) -> String {
+        guard ruleType == "IP-CIDR" else { return host }
+        return host.contains(":") ? "\(host)/128" : "\(host)/32"
+    }
+
+    private static func isIPAddress(_ value: String) -> Bool {
+        var ipv4 = in_addr()
+        var ipv6 = in6_addr()
+        return value.withCString { pointer in
+            inet_pton(AF_INET, pointer, &ipv4) == 1 || inet_pton(AF_INET6, pointer, &ipv6) == 1
+        }
+    }
+
+    private func applyLargeTrafficThresholdText() {
+        guard let thresholdBytes = Self.parseLargeTrafficThresholdBytes(self.largeTrafficThresholdText) else {
+            NSSound.beep()
+            self.syncLargeTrafficThresholdTextFromModel()
+            return
+        }
+
+        self.appViewModel.setLargeTrafficThresholdBytes(thresholdBytes)
+        self.syncLargeTrafficThresholdTextFromModel()
+    }
+
+    private func syncLargeTrafficThresholdTextFromModel() {
+        let text = Self.largeTrafficThresholdDisplayText(for: self.appViewModel.largeTrafficThresholdBytes)
+        if self.largeTrafficThresholdText != text {
+            self.largeTrafficThresholdText = text
+        }
+    }
+
+    private static func parseLargeTrafficThresholdBytes(_ text: String) -> Int64? {
+        let normalized = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: " ", with: "")
+            .uppercased()
+        guard !normalized.isEmpty else { return nil }
+
+        var unitStart = normalized.startIndex
+        while unitStart < normalized.endIndex {
+            let character = normalized[unitStart]
+            guard character.isNumber || character == "." else { break }
+            unitStart = normalized.index(after: unitStart)
+        }
+
+        let numberText = String(normalized[..<unitStart])
+        let unitText = String(normalized[unitStart...])
+        guard let value = Double(numberText), value > 0 else { return nil }
+
+        let multiplier: Double
+        switch unitText {
+        case "", "M", "MB", "MIB":
+            multiplier = 1024 * 1024
+        case "K", "KB", "KIB":
+            multiplier = 1024
+        case "G", "GB", "GIB":
+            multiplier = 1024 * 1024 * 1024
+        case "B":
+            multiplier = 1
+        default:
+            return nil
+        }
+        return Int64((value * multiplier).rounded())
+    }
+
+    private static func largeTrafficThresholdDisplayText(for bytes: Int64) -> String {
+        let gigabyte = 1024.0 * 1024.0 * 1024.0
+        let megabyte = 1024.0 * 1024.0
+        let kilobyte = 1024.0
+        let value = Double(bytes)
+
+        if value >= gigabyte {
+            return "\(Self.compactDecimal(value / gigabyte))GB"
+        }
+        if value >= megabyte {
+            return "\(Self.compactDecimal(value / megabyte))MB"
+        }
+        if value >= kilobyte {
+            return "\(Self.compactDecimal(value / kilobyte))KB"
+        }
+        return "\(bytes)B"
+    }
+
+    private static func compactDecimal(_ value: Double) -> String {
+        let rounded = (value * 100).rounded() / 100
+        if rounded == rounded.rounded(.towardZero) {
+            return "\(Int64(rounded))"
+        }
+
+        var text = String(format: "%.2f", rounded)
+        while text.last == "0" {
+            text.removeLast()
+        }
+        if text.last == "." {
+            text.removeLast()
+        }
+        return text
+    }
+
+    var connectionsSubviewTabs: some View {
+        HStack(spacing: MenuBarLayoutTokens.space2) {
+            self.connectionsSubviewButton(
+                .active,
+                title: self.tr("ui.connections.tab.active"),
+                symbol: "network",
+                count: self.viewModel.visibleConnections.count)
+            self.connectionsSubviewButton(
+                .largeTraffic,
+                title: self.tr("ui.connections.tab.large_traffic"),
+                symbol: "exclamationmark.arrow.triangle.2.circlepath",
+                count: self.connectionsStore.largeTrafficCandidates.count)
+        }
+        .padding(MenuBarLayoutTokens.space2)
+        .cleanContentCard()
+    }
+
+    @ViewBuilder
+    private func connectionsSubviewContent(_ connections: [ConnectionSummary]) -> some View {
+        switch self.selectedSubview {
+        case .active:
+            self.connectionsControlCard
+            self.connectionsListCard(connections)
+        case .largeTraffic:
+            self.largeTrafficCandidatesCard
+        }
+    }
+
+    @ViewBuilder
+    private func connectionsListCard(_ connections: [ConnectionSummary]) -> some View {
+        if connections.isEmpty {
+            emptyCard(self.tr("ui.empty.connections"))
+        } else {
+            MeasurementAwareVStack(spacing: 0) {
+                SeparatedForEach(data: connections, id: \.id, separator: nativeSeparator) { conn in
+                    self.connectionRow(conn)
+                }
+            }
+            .menuRowPadding(vertical: MenuBarLayoutTokens.space2)
+            .cleanContentCard()
+        }
+    }
+
+    private func connectionsSubviewButton(
+        _ subview: ConnectionsSubview,
+        title: String,
+        symbol: String,
+        count: Int) -> some View
+    {
+        let selected = self.selectedSubview == subview
+
+        return Button {
+            self.selectedSubview = subview
+        } label: {
+            HStack(spacing: MenuBarLayoutTokens.space4) {
+                Image(systemName: symbol)
+                    .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .semibold))
+                    .foregroundStyle(selected ? nativePrimaryLabel : nativeSecondaryLabel)
+                    .frame(width: 12, alignment: .center)
+                Text(title)
+                    .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .semibold))
+                    .foregroundStyle(selected ? nativePrimaryLabel : nativeSecondaryLabel)
+                    .lineLimit(1)
+                    .minimumScaleFactor(MenuBarLayoutTokens.minimumScale)
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .bold))
+                        .foregroundStyle(selected ? nativePrimaryLabel : nativeSecondaryLabel)
+                        .padding(.horizontal, MenuBarLayoutTokens.space4)
+                        .padding(.vertical, MenuBarLayoutTokens.space1)
+                        .background(nativeBadgeCapsule())
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 22, alignment: .center)
+            .background {
+                RoundedRectangle(cornerRadius: MenuBarLayoutTokens.cornerRadius, style: .continuous)
+                    .fill(selected ? nativeHoverFill : .clear)
+            }
+            .contentShape(Rectangle())
+            .overlay {
+                if selected {
+                    RoundedRectangle(cornerRadius: MenuBarLayoutTokens.cornerRadius, style: .continuous)
+                        .stroke(nativeControlBorder, lineWidth: MenuBarLayoutTokens.stroke)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+    }
+
     var connectionsControlCard: some View {
         VStack(alignment: .leading, spacing: MenuBarLayoutTokens.space4) {
             HStack(spacing: MenuBarLayoutTokens.space6) {
                 self.connectionsFilterMenu
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 self.connectionsSortMenu
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer(minLength: 0)
 
@@ -120,6 +373,173 @@ struct ConnectionsTabView: TranslatingView {
         .cleanContentCard()
     }
 
+    var largeTrafficCandidatesCard: some View {
+        VStack(alignment: .leading, spacing: MenuBarLayoutTokens.space4) {
+            HStack(spacing: MenuBarLayoutTokens.space6) {
+                Label(
+                    self.tr("ui.connections.large_traffic.title"),
+                    systemImage: "exclamationmark.arrow.triangle.2.circlepath")
+                    .font(.app(size: MenuBarLayoutTokens.FontSize.body, weight: .semibold))
+                    .foregroundStyle(nativePrimaryLabel)
+                    .lineLimit(1)
+                    .minimumScaleFactor(MenuBarLayoutTokens.minimumScale)
+
+                Text("\(self.connectionsStore.largeTrafficCandidates.count)")
+                    .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .bold))
+                    .foregroundStyle(nativeCritical.opacity(MenuBarLayoutTokens.Opacity.solid))
+                    .padding(.horizontal, MenuBarLayoutTokens.space4)
+                    .padding(.vertical, MenuBarLayoutTokens.space1)
+                    .background(nativeCritical.opacity(0.12), in: Capsule())
+
+                Spacer(minLength: 0)
+
+                self.largeTrafficThresholdControl
+                    .frame(width: 86, alignment: .trailing)
+
+                self.compactTopIcon(
+                    "trash",
+                    label: self.tr("ui.action.clear"),
+                    warning: true)
+                {
+                    self.appViewModel.clearLargeTrafficConnectionCandidates()
+                }
+                .help(self.tr("ui.action.clear"))
+            }
+
+            if self.connectionsStore.largeTrafficCandidates.isEmpty {
+                Text(self.tr("ui.empty.large_traffic"))
+                    .font(.app(size: MenuBarLayoutTokens.FontSize.body, weight: .regular))
+                    .foregroundStyle(nativeSecondaryLabel)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .padding(.horizontal, MenuBarLayoutTokens.space4)
+                    .padding(.vertical, MenuBarLayoutTokens.space2)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(self.connectionsStore.largeTrafficCandidates) { candidate in
+                        self.largeTrafficCandidateRow(candidate)
+
+                        if candidate.id != self.connectionsStore.largeTrafficCandidates.last?.id {
+                            Rectangle()
+                                .fill(nativeSeparator)
+                                .frame(height: MenuBarLayoutTokens.stroke)
+                        }
+                    }
+                }
+            }
+        }
+        .menuRowPadding(vertical: MenuBarLayoutTokens.space4)
+        .cleanContentCard()
+    }
+
+    var largeTrafficThresholdControl: some View {
+        TextField("10MB", text: self.$largeTrafficThresholdText)
+            .textFieldStyle(.roundedBorder)
+            .controlSize(.small)
+            .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .regular))
+            .focused(self.$isLargeTrafficThresholdFocused)
+            .onSubmit { self.applyLargeTrafficThresholdText() }
+        .help(self.tr("ui.connections.large_traffic.threshold"))
+    }
+
+    func largeTrafficCandidateRow(_ candidate: LargeTrafficConnectionCandidate) -> some View {
+        let visualSymbol = candidate.ruleType == "IP-CIDR" ? "number" : "globe"
+        let hostText = candidate.host
+        let networkType = candidate.network?.uppercased() ?? "--"
+        let upText = ValueFormatter.bytesCompactNoSpace(candidate.upload)
+        let downText = ValueFormatter.bytesCompactNoSpace(candidate.download)
+        let chainsParts = self.connectionChainsParts(candidate.chains)
+
+        return HStack(spacing: MenuBarLayoutTokens.space6) {
+            Image(systemName: visualSymbol)
+                .font(.app(size: MenuBarLayoutTokens.FontSize.body, weight: .semibold))
+                .foregroundStyle(nativeWarning.opacity(MenuBarLayoutTokens.Opacity.solid))
+                .frame(
+                    width: MenuBarLayoutTokens.rowLeadingIcon,
+                    height: MenuBarLayoutTokens.rowLeadingIcon,
+                    alignment: .center)
+
+            VStack(alignment: .leading, spacing: MenuBarLayoutTokens.space2) {
+                self.connectionRowTopLine(
+                    host: hostText,
+                    ruleType: candidate.ruleType,
+                    rulePayload: candidate.payload,
+                    contentWidth: ConnectionsLayout.largeTrafficRowContentWidth)
+                self.connectionRowMetrics(
+                    time: ValueFormatter.bytesCompactNoSpace(candidate.trafficTotal),
+                    network: networkType,
+                    up: upText,
+                    down: downText,
+                    contentWidth: ConnectionsLayout.largeTrafficRowContentWidth)
+                self.connectionsDetailLine(
+                    processName: candidate.processName ?? "",
+                    parts: chainsParts,
+                    contentWidth: ConnectionsLayout.largeTrafficRowContentWidth)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: MenuBarLayoutTokens.space4) {
+                self.largeTrafficRowIconButton(
+                    symbol: "plus",
+                    label: self.tr("ui.connections.large_traffic.add_rule"),
+                    tint: nativePositive)
+                {
+                    self.ruleDraftForAdd = self.ruleDraft(for: candidate)
+                }
+
+                self.largeTrafficRowIconButton(
+                    symbol: "xmark",
+                    label: self.tr("ui.action.delete"),
+                    tint: nativeSecondaryLabel)
+                {
+                    self.appViewModel.removeLargeTrafficConnectionCandidate(candidate)
+                }
+            }
+        }
+        .padding(.horizontal, MenuBarLayoutTokens.space4)
+        .padding(.vertical, MenuBarLayoutTokens.space2)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button {
+                self.ruleDraftForAdd = self.ruleDraft(for: candidate)
+            } label: {
+                Label(self.tr("ui.connections.large_traffic.add_rule"), systemImage: "plus")
+            }
+
+            Button {
+                self.appViewModel.copyConnectionHost(candidate.host)
+            } label: {
+                Label(self.tr("ui.action.copy_host"), systemImage: "doc.on.doc")
+            }
+
+            Button(role: .destructive) {
+                self.appViewModel.removeLargeTrafficConnectionCandidate(candidate)
+            } label: {
+                Label(self.tr("ui.action.delete"), systemImage: "trash")
+            }
+        }
+    }
+
+    private func largeTrafficRowIconButton(
+        symbol: String,
+        label: String,
+        tint: Color,
+        action: @escaping () -> Void) -> some View
+    {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .semibold))
+                .frame(width: 10, height: 10)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(tint.opacity(MenuBarLayoutTokens.Opacity.solid))
+        .frame(
+            width: ConnectionsLayout.largeTrafficActionButtonSize,
+            height: ConnectionsLayout.largeTrafficActionButtonSize)
+        .background(nativeBadgeCapsule())
+        .help(label)
+        .accessibilityLabel(label)
+    }
+
     var connectionsFilterMenu: some View {
         self.compactSelectionMenu(.init(
             selection: self.viewModel.transportFilter,
@@ -133,7 +553,7 @@ struct ConnectionsTabView: TranslatingView {
     var connectionsSortMenu: some View {
         self.compactSelectionMenu(.init(
             selection: self.viewModel.sortOption,
-            options: ConnectionsSortOption.allCases,
+            options: ConnectionsSortOption.menuOptions,
             symbol: "arrow.up.arrow.down",
             helpText: self.tr("ui.network.sort.label"),
             optionTitle: { self.tr($0.titleKey) },
@@ -187,10 +607,15 @@ struct ConnectionsTabView: TranslatingView {
         .contextMenu { self.connectionRowContextMenu(conn) }
     }
 
-    private func connectionRowTopLine(host: String, ruleType: String, rulePayload: String) -> some View {
-        // Use static rowContentWidth constant — no GeometryReader needed since panel is always 360pt
+    private func connectionRowTopLine(
+        host: String,
+        ruleType: String,
+        rulePayload: String,
+        contentWidth: CGFloat = ConnectionsLayout.rowContentWidth) -> some View
+    {
+        // Use a static content width, no GeometryReader needed since panel width is fixed.
         let layout = self.connectionsTopLineLayout(
-            totalWidth: ConnectionsLayout.rowContentWidth,
+            totalWidth: contentWidth,
             ruleText: ruleType,
             payloadText: rulePayload)
 
@@ -215,9 +640,15 @@ struct ConnectionsTabView: TranslatingView {
         .frame(height: ConnectionsLayout.rowLineHeight)
     }
 
-    private func connectionRowMetrics(time: String, network: String, up: String, down: String) -> some View {
+    private func connectionRowMetrics(
+        time: String,
+        network: String,
+        up: String,
+        down: String,
+        contentWidth: CGFloat = ConnectionsLayout.rowContentWidth) -> some View
+    {
         let columnWidth = max(
-            (ConnectionsLayout.rowContentWidth - (ConnectionsLayout.secondLineSpacing * 3)) / 4,
+            (contentWidth - (ConnectionsLayout.secondLineSpacing * 3)) / 4,
             0)
 
         return HStack(spacing: ConnectionsLayout.secondLineSpacing) {
@@ -251,7 +682,11 @@ struct ConnectionsTabView: TranslatingView {
         .frame(height: ConnectionsLayout.rowLineHeight)
     }
 
-    private func connectionsDetailLine(processName: String, parts: [String]) -> some View {
+    private func connectionsDetailLine(
+        processName: String,
+        parts: [String],
+        contentWidth: CGFloat = ConnectionsLayout.rowContentWidth) -> some View
+    {
         let chainText = parts.joined(separator: " > ")
 
         return HStack(spacing: MenuBarLayoutTokens.space4) {
@@ -281,7 +716,7 @@ struct ConnectionsTabView: TranslatingView {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
-                .frame(maxWidth: ConnectionsLayout.rowContentWidth * 0.35, alignment: .trailing)
+                .frame(maxWidth: contentWidth * 0.35, alignment: .trailing)
             }
         }
         .frame(height: ConnectionsLayout.rowLineHeight, alignment: .leading)
@@ -310,6 +745,14 @@ struct ConnectionsTabView: TranslatingView {
         }
 
         if let host = appViewModel.resolvedConnectionHost(for: conn) {
+            if let draft = self.ruleDraft(for: conn) {
+                Button {
+                    self.ruleDraftForAdd = draft
+                } label: {
+                    Label(self.tr("ui.connections.large_traffic.add_rule"), systemImage: "plus")
+                }
+            }
+
             Button {
                 self.appViewModel.copyConnectionHost(host)
             } label: {

@@ -1,15 +1,21 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct RulesTabView: TranslatingView {
     @EnvironmentObject var appViewModel: AppViewModel
     @StateObject private var viewModel = RulesViewModel()
     @State private var hoveredRuleIndex: Int?
+    @State private var showAddRuleSheet = false
+    @State private var draggingRule: RuleItem?
+    @State private var dropTargetRule: RuleItem?
+    @State private var rulePendingDeletion: RuleItem?
 
     private enum RulesLayout {
         static let targetWidth: CGFloat = 120
         static let policyWidth: CGFloat = 40
         static let groupWidth: CGFloat = 56
         static let usageColumnWidth: CGFloat = 42
+        static let rowActionSize: CGFloat = 18
         static let statsSpacing: CGFloat = 4
     }
 
@@ -27,7 +33,10 @@ struct RulesTabView: TranslatingView {
                 }
 
                 Spacer(minLength: 0)
-                self.rulesRefreshButton
+                HStack(spacing: MenuBarLayoutTokens.space4) {
+                    self.rulesAddButton
+                    self.rulesRefreshButton
+                }
             }
             .padding(.vertical, MenuBarLayoutTokens.space6)
             .overlay(alignment: .bottom) {
@@ -72,7 +81,12 @@ struct RulesTabView: TranslatingView {
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(visibleRules.enumerated()), id: \.offset) { index, rule in
-                        self.rulesRow(rule: rule, index: index, providerLookup: providerLookup)
+                        self.rulesRow(
+                            rule: rule,
+                            index: index,
+                            rules: visibleRules,
+                            providerLookup: providerLookup,
+                            isDropTarget: self.dropTargetRule == rule)
 
                         if index < visibleRules.count - 1 {
                             Rectangle()
@@ -84,6 +98,16 @@ struct RulesTabView: TranslatingView {
             }
         }
         .cleanContentCard()
+        .sheet(isPresented: self.$showAddRuleSheet) {
+            AddRuleSheet()
+                .environmentObject(self.appViewModel)
+        }
+        .sheet(isPresented: self.deleteRuleSheetBinding) {
+            if let rule = self.rulePendingDeletion {
+                ConfirmDeleteRuleSheet(rule: rule)
+                    .environmentObject(self.appViewModel)
+            }
+        }
         .onAppear { self.refreshData() }
         .onChange(of: self.appViewModel.ruleItems) { _ in self.refreshData() }
         .onChange(of: self.appViewModel.ruleProviders) { _ in self.refreshData() }
@@ -93,6 +117,16 @@ struct RulesTabView: TranslatingView {
         self.viewModel.updateVisibleRules(
             items: self.appViewModel.ruleItems,
             providers: self.appViewModel.ruleProviders)
+    }
+
+    private var deleteRuleSheetBinding: Binding<Bool> {
+        Binding(
+            get: { self.rulePendingDeletion != nil },
+            set: { isPresented in
+                if !isPresented {
+                    self.rulePendingDeletion = nil
+                }
+            })
     }
 
     func rulesStatChip(title: String, value: String) -> some View {
@@ -121,7 +155,26 @@ struct RulesTabView: TranslatingView {
         .opacity(self.appViewModel.isRuleProvidersRefreshing ? 0.6 : 1)
     }
 
-    func rulesRow(rule: RuleItem, index: Int, providerLookup: [String: ProviderDetail]) -> some View {
+    var rulesAddButton: some View {
+        self.compactTopIcon(
+            "plus",
+            label: self.tr("ui.action.add_rule"),
+            toneOverride: nativePositive)
+        {
+            self.showAddRuleSheet = true
+        }
+        .help(self.tr("ui.action.add_rule"))
+        .disabled(!self.appViewModel.canEditRulesInSelectedLocalConfig)
+        .opacity(self.appViewModel.canEditRulesInSelectedLocalConfig ? 1 : 0.6)
+    }
+
+    func rulesRow(
+        rule: RuleItem,
+        index: Int,
+        rules: [RuleItem],
+        providerLookup: [String: ProviderDetail],
+        isDropTarget: Bool) -> some View
+    {
         let hovered = self.hoveredRuleIndex == index
         let typeText = (rule.type.trimmedNonEmpty ?? self.tr("ui.common.na")).uppercased()
         let targetText = rule.payload.trimmedNonEmpty ?? self.tr("ui.common.na")
@@ -172,27 +225,136 @@ struct RulesTabView: TranslatingView {
                 }
                 .frame(width: (RulesLayout.usageColumnWidth * 2) + RulesLayout.statsSpacing, alignment: .trailing)
 
-                VStack(alignment: .trailing, spacing: MenuBarLayoutTokens.space1) {
-                    Text("\(stats.count)")
-                        .font(.app(size: MenuBarLayoutTokens.FontSize.body, weight: .regular))
-                        .foregroundStyle(stats.hasProvider ? nativeSecondaryLabel : nativeTertiaryLabel)
-                    if let updatedText = stats.updatedText {
-                        Text(updatedText)
-                            .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .regular))
-                            .foregroundStyle(nativeTertiaryLabel)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                }
-                .frame(width: RulesLayout.groupWidth, alignment: .trailing)
+                self.ruleGroupStatsOrDelete(rule: rule, stats: stats, isVisible: hovered)
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.horizontal, MenuBarLayoutTokens.space4)
         .padding(.vertical, MenuBarLayoutTokens.space2)
-        .background(nativeHoverRowBackground(hovered))
+        .contentShape(Rectangle())
+        .background(nativeHoverRowBackground(hovered || isDropTarget))
+        .overlay(alignment: .leading) {
+            if isDropTarget && self.appViewModel.canEditRulesInSelectedLocalConfig {
+                Rectangle()
+                    .fill(nativeAccent.opacity(MenuBarLayoutTokens.Opacity.solid))
+                    .frame(width: 2)
+            }
+        }
+        .onDrag {
+            guard self.appViewModel.canEditRulesInSelectedLocalConfig else {
+                return NSItemProvider()
+            }
+            self.draggingRule = rule
+            return NSItemProvider(object: self.ruleDragIdentifier(for: rule) as NSString)
+        }
+        .onDrop(
+            of: [UTType.text],
+            delegate: RuleDropDelegate(
+                targetRule: rule,
+                rules: rules,
+                draggingRule: self.$draggingRule,
+                dropTargetRule: self.$dropTargetRule,
+                canEdit: self.appViewModel.canEditRulesInSelectedLocalConfig)
+            { sourceRule, targetRule, rules in
+                Task {
+                    await self.moveDraggedRule(sourceRule, to: targetRule, in: rules)
+                }
+            })
         .onHover { self.hoveredRuleIndex = self.nextHovered(
             current: self.hoveredRuleIndex, target: index, isHovering: $0) }
+    }
+
+    func ruleDragIdentifier(for rule: RuleItem) -> String {
+        [
+            rule.type ?? "",
+            rule.payload ?? "",
+            rule.proxy ?? "",
+        ].joined(separator: "\u{1f}")
+    }
+
+    func moveDraggedRule(_ sourceRule: RuleItem, to targetRule: RuleItem, in rules: [RuleItem]) async {
+        guard self.appViewModel.canEditRulesInSelectedLocalConfig,
+              sourceRule != targetRule,
+              let sourceIndex = rules.firstIndex(of: sourceRule),
+              let targetIndex = rules.firstIndex(of: targetRule)
+        else {
+            return
+        }
+
+        if sourceIndex < targetIndex {
+            if self.isFinalRule(targetRule) {
+                await self.appViewModel.moveRuleInSelectedLocalConfig(sourceRule, before: targetRule)
+            } else {
+                await self.appViewModel.moveRuleInSelectedLocalConfig(sourceRule, after: targetRule)
+            }
+        } else {
+            await self.appViewModel.moveRuleInSelectedLocalConfig(sourceRule, before: targetRule)
+        }
+    }
+
+    func isFinalRule(_ rule: RuleItem) -> Bool {
+        guard let type = rule.type?.trimmed.uppercased() else { return false }
+        return type == "MATCH" || type == "FINAL"
+    }
+
+    func ruleGroupStatsOrDelete(
+        rule: RuleItem,
+        stats: (count: Int, updatedText: String?, hasProvider: Bool),
+        isVisible: Bool) -> some View
+    {
+        let canEdit = self.appViewModel.canEditRulesInSelectedLocalConfig
+
+        return ZStack(alignment: .trailing) {
+            VStack(alignment: .trailing, spacing: MenuBarLayoutTokens.space1) {
+                Text("\(stats.count)")
+                    .font(.app(size: MenuBarLayoutTokens.FontSize.body, weight: .regular))
+                    .foregroundStyle(stats.hasProvider ? nativeSecondaryLabel : nativeTertiaryLabel)
+                if let updatedText = stats.updatedText {
+                    Text(updatedText)
+                        .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .regular))
+                        .foregroundStyle(nativeTertiaryLabel)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            .opacity(isVisible && canEdit ? 0 : 1)
+
+            self.ruleRowActionButton(
+                symbol: "trash",
+                tint: nativeCritical,
+                help: self.tr("ui.action.delete"),
+                isEnabled: canEdit)
+            {
+                await MainActor.run {
+                    self.rulePendingDeletion = rule
+                }
+            }
+            .opacity(isVisible && canEdit ? 1 : 0)
+            .allowsHitTesting(isVisible && canEdit)
+        }
+        .frame(width: RulesLayout.groupWidth, height: 30, alignment: .trailing)
+    }
+
+    func ruleRowActionButton(
+        symbol: String,
+        tint: Color,
+        help: String,
+        isEnabled: Bool,
+        action: @escaping () async -> Void) -> some View
+    {
+        Button {
+            Task { await action() }
+        } label: {
+            Image(systemName: symbol)
+                .font(.app(size: MenuBarLayoutTokens.FontSize.caption, weight: .semibold))
+                .foregroundStyle(tint.opacity(MenuBarLayoutTokens.Opacity.solid))
+                .frame(width: RulesLayout.rowActionSize, height: RulesLayout.rowActionSize)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.35)
     }
 
     func ruleTypeIcon(for type: String) -> (symbol: String, color: Color) {
@@ -267,5 +429,61 @@ struct RulesTabView: TranslatingView {
     func ruleUsageRelativeTime(_ input: String?) -> String? {
         let text = ValueFormatter.relativeTime(from: input, language: self.language)
         return text == "--" ? nil : text
+    }
+}
+
+private struct RuleDropDelegate: DropDelegate {
+    let targetRule: RuleItem
+    let rules: [RuleItem]
+    @Binding var draggingRule: RuleItem?
+    @Binding var dropTargetRule: RuleItem?
+    let canEdit: Bool
+    let onMove: (RuleItem, RuleItem, [RuleItem]) -> Void
+
+    func validateDrop(info _: DropInfo) -> Bool {
+        guard self.canEdit,
+              let sourceRule = self.draggingRule,
+              sourceRule != self.targetRule
+        else {
+            return false
+        }
+        return true
+    }
+
+    func dropEntered(info _: DropInfo) {
+        guard self.canEdit,
+              let sourceRule = self.draggingRule,
+              sourceRule != self.targetRule
+        else {
+            return
+        }
+        self.dropTargetRule = self.targetRule
+    }
+
+    func dropExited(info _: DropInfo) {
+        if self.dropTargetRule == self.targetRule {
+            self.dropTargetRule = nil
+        }
+    }
+
+    func dropUpdated(info _: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info _: DropInfo) -> Bool {
+        defer {
+            self.draggingRule = nil
+            self.dropTargetRule = nil
+        }
+
+        guard self.canEdit,
+              let sourceRule = self.draggingRule,
+              sourceRule != self.targetRule
+        else {
+            return false
+        }
+
+        self.onMove(sourceRule, self.targetRule, self.rules)
+        return true
     }
 }

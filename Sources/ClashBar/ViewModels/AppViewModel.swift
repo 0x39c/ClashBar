@@ -78,7 +78,8 @@ final class AppViewModel: ObservableObject {
     @Published var configDirectoryPath: String = "-"
     @Published var availableConfigFileNames: [String] = []
     @Published var remoteConfigMenuStates: [String: RemoteConfigMenuState] = [:]
-    @Published var selectedProxyProviderName: String?
+    @Published var selectedCommonProxyProviderName: String?
+    @Published var selectedDownloadProxyProviderName: String?
     @Published var isPinned: Bool = false
 
     func togglePinned() {
@@ -224,7 +225,8 @@ final class AppViewModel: ObservableObject {
         mode: .iconOnly,
         symbolName: nil,
         speedLines: nil,
-        isRunning: false)
+        isRunning: false,
+        pendingCount: 0)
 
     @Published var settingsAllowLan: Bool = false
     @Published var settingsIPv6: Bool = false
@@ -243,6 +245,11 @@ final class AppViewModel: ObservableObject {
 
     @Published var settingsErrorMessage: String?
     @Published var settingsSavedMessage: String?
+    @Published var webDAVConfigSyncSettings = WebDAVConfigSyncSettings()
+    @Published var webDAVConfigSyncInFlight: WebDAVConfigSyncService.SyncDirection?
+    @Published var webDAVConfigSyncFeedback: WebDAVConfigSyncFeedback?
+    @Published var largeTrafficRuleTargetPolicy: String = "DIRECT"
+    @Published var largeTrafficThresholdBytes: Int64 = 10 * 1024 * 1024
     var lastSyncedEditableSettings: EditableSettingsSnapshot?
     var explicitEditableSettingKeys: Set<String> = []
     var pendingProxyPortAutoSaveKeys: Set<String> = []
@@ -330,7 +337,8 @@ final class AppViewModel: ObservableObject {
             mode: mode,
             symbolName: mode == .speedOnly ? nil : self.menuBarSymbolName,
             speedLines: mode == .iconOnly ? nil : self.menuBarSpeedLines,
-            isRunning: self.isRuntimeRunning)
+            isRunning: self.isRuntimeRunning,
+            pendingCount: self.connectionsStore.largeTrafficCandidates.count)
     }
 
     func compactMenuBarRate(_ bytesPerSecond: Int64) -> String {
@@ -422,6 +430,7 @@ final class AppViewModel: ObservableObject {
     var deferredEditableSettingsOverlayTask: Task<Void, Never>?
     var coreUpgradeFeedbackClearTask: Task<Void, Never>?
     var configDirectoryMonitorTask: Task<Void, Never>?
+    var pendingRuleConfigApplyTask: Task<Void, Never>?
     var trafficDecodeTask: Task<Void, Never>?
     var mihomoLogFlushTask: Task<Void, Never>?
     var providerRefreshGeneration: Int = 0
@@ -471,6 +480,7 @@ final class AppViewModel: ObservableObject {
     let foregroundLowFrequencyOtherTabsIntervalNanoseconds: UInt64 = 45_000_000_000
     let backgroundLowFrequencyIntervalNanoseconds: UInt64 = 120_000_000_000
     let trafficPublishIntervalNanoseconds: UInt64 = 500_000_000
+    let ruleConfigApplyDebounceNanoseconds: UInt64 = 5_000_000_000
     // DRY: shared defaults for latency/provider healthcheck endpoints.
     let defaultHealthcheckURL = "https://www.gstatic.com/generate_204"
     let defaultHealthcheckTimeoutMilliseconds = 5000
@@ -571,6 +581,7 @@ final class AppViewModel: ObservableObject {
         proxyPortsAutoSaveTask?.cancel()
         settingsFeedbackClearTask?.cancel()
         coreUpgradeFeedbackClearTask?.cancel()
+        pendingRuleConfigApplyTask?.cancel()
 
         // Stream coordinator owns WS receive loops; detach cleanup onto the
         // main actor using captured references so we never touch `self` after
